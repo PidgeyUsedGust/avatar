@@ -1,4 +1,4 @@
-from typing import Tuple, Any
+from typing import Tuple, List, Any
 import pandas as pd
 
 
@@ -12,5 +12,19 @@ class Transformation:
         return pd.DataFrame(column)
 
     @classmethod
-    def arguments(self, column: pd.Series) -> Tuple[Any]:
+    def arguments(cls, column: pd.Series) -> List[Tuple[Any]]:
         return ()
+
+
+class Filter:
+    """Generic filter."""
+
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        pass
+
+    def keep(self, value):
+        return True
+    
+    @classmethod
+    def arguments(cls, column: pd.Series) -> List[Tuple[Any]]:
+        return []

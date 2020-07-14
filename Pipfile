@@ -9,6 +9,12 @@ verify_ssl = true
 avatar = {editable = true, path = "."}
 pandas = "*"
 mercs = "*"
+jupyter = "*"
+word2number = "*"
+sklearn = "*"
 
 [requires]
 python_version = "3.8"
+
+[scripts]
+install_kernel = "python -m ipykernel install --user --name=avatar"
