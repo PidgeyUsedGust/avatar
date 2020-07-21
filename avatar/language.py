@@ -1,20 +1,88 @@
 """Simple transformation language."""
 import pandas as pd
-from transformations import Transformation
+from typing import List, Tuple, Optional
+from .transformations import *
+
+
+default_transformations = [
+    # string
+    Split,
+    SplitAlign,
+    ExtractNumber,
+    ExtractWord,
+    Lowercase,
+    # type
+    Numerical,
+    Categorical,
+    # encoding
+    OneHot,
+    NaN,
+    # semantic
+    WordToNumber,
+]
+"""List of all supported transformations."""
 
 
 class WranglingTransformation:
     """Generic wrangling transformation."""
 
-    def __init__(self, column: int, transformation: Transformation):
+    def __init__(self, column, transformation: Transformation, replace=False):
+        """
+        
+        Args:
+            replace: If set to True, will remove transformed column.
+
+        """
         self._column = column
         self._transformation = transformation
+        self._replace = replace
 
-    @classmethod
-    def arguments(self, df: pd.DataFrame) -> List[Tuple[int, Transformation]]:
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        new_columns = self._transformation(df[self._column])
+        new_df = pd.concat((df, new_columns), axis=1)
+        if self._replace:
+            new_df = new_df.drop(self._column)
+        return new_df
+    
+    def __str__(self):
+        return "{}({})".format(self._transformation, self._column)
+
+
+class WranglingFilter:
+    """Wrangling filter."""
+
+    def __init__(self, column, filter_: Filter):
+        self._column = column
+        self._filter = filter_
+
+
+class WranglingLanguage:
+    """Wrangling language."""
+
+    def __init__(self, transformations: Optional[List[Transformation]] = None):
+        """
+
+        Arguments:
+            transformations: A list of transformations supported by
+                the current language.
+
+        """
+        if transformations is None:
+            transformations = default_transformations
+        self._transformations = transformations
+
+    def transformations(self, df: pd.DataFrame) -> List[Tuple[str, Transformation]]:
         """Get allowed arguments for wrangling transformation."""
-        for i, column in df.iteritems():
-            print(i, column)
+        transformations = list()
+        for transformation in self._transformations:
+            for i, column in df.iteritems():
+                if column.dtype.name in transformation.allowed:
+                    arguments = transformation.arguments(column)
+                    for argument in arguments:
+                        transformations.append(
+                            WranglingTransformation(i, transformation(*argument))
+                        )
+        return transformations
 
 
 class WranglingProgram:

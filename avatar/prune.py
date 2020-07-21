@@ -1,1 +1,1 @@
-"""Prune columns.""""
+"""Prune columns."""
