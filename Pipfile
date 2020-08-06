@@ -6,12 +6,13 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-avatar = {editable = true, path = "."}
+avatar = {editable = true,path = "."}
 pandas = "*"
 mercs = "*"
 jupyter = "*"
 word2number = "*"
 sklearn = "*"
+skfeature = {editable = true, git = "https://github.com/jundongl/scikit-feature.git"}
 
 [requires]
 python_version = "3.8"

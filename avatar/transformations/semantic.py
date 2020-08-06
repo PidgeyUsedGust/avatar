@@ -49,3 +49,20 @@ class WordToNumber(Transformation):
 
 # except:
 #     pass
+
+
+class NormaliseTimedelta(Transformation):
+    """Normalise time deltas."""
+
+    time_map = {"day": 1, "week": 7, "month": 30, "year": 365}
+
+    def __call__(self, column: pd.Series) -> pd.DataFrame:
+        pass
+
+    @classmethod
+    def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
+        values = np.unique(column)
+        times = cls.time_map.keys()
+        if any(any(t in value for t in times) for value in values):
+            return [()]
+        return []

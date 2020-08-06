@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from typing import List, Tuple
 from .base import Transformation
 
@@ -35,4 +36,11 @@ class NaN(Transformation):
 
     @classmethod
     def arguments(self, column: pd.Series) -> List[Tuple[str]]:
-        return [(v,) for v in column.drop_duplicates().to_list()]
+        arguments = list()
+        for value, count in column.value_counts().iteritems():
+            if count > 1:
+                arguments.append((value,))
+            else:
+                break
+        return arguments
+        # return [(v,) for v in column.drop_duplicates().to_list()]

@@ -38,12 +38,22 @@ class WranglingTransformation:
         self._replace = replace
 
     def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply transformation to dataframe.
+        
+        If replacing is True, remove the original column.
+
+        """
         new_columns = self._transformation(df[self._column])
+        new_columns.rename(
+            columns=lambda x: "{}({})_{}".format(self._transformation, self._column, x),
+            inplace=True,
+        )
+        # new_columns.columns = [str(self._transformation) + ]
         new_df = pd.concat((df, new_columns), axis=1)
         if self._replace:
             new_df = new_df.drop(self._column)
         return new_df
-    
+
     def __str__(self):
         return "{}({})".format(self._transformation, self._column)
 

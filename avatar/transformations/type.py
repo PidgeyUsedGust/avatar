@@ -24,7 +24,8 @@ class Categorical(Transformation):
     allowed = ["int64", "object"]
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return pd.Categorical(column).to_frame()
+        # return pd.Categorical(column).to_frame()
+        return column.astype("category").to_frame()
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:

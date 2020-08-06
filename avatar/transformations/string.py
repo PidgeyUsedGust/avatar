@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .base import Transformation
-from ..utilities import get_substrings
+from ..utilities import get_substrings, count_unique
 
 
 class StringTransformation(Transformation):
@@ -27,7 +27,7 @@ class Split(StringTransformation):
         return column.str.split(pat=self._delimiter, expand=True)
 
     def __str__(self) -> str:
-        return "Split({})".format(self._delimiter)
+        return "Split({})".format(re.sub(r"\\(.)", r"\1", self._delimiter))
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
@@ -46,6 +46,7 @@ class Split(StringTransformation):
             for delimiter in delimiters:
                 for substring in get_substrings(delimiter):
                     arguments.add(("{}".format(re.escape(substring)),))
+                    # arguments.add(("{}".format(substring),))
         return arguments
 
 
@@ -68,23 +69,50 @@ class SplitAlign(StringTransformation):
 
     """
 
+    max_categories = 30
+
     def __init__(self, delimiter: str):
         self._delimiter = delimiter
 
+    # def __call__(self, column: pd.Series) -> pd.DataFrame:
+    #     df = pd.DataFrame()
+    #     for i, values in column.str.split(pat=self._delimiter).iteritems():
+    #         for value in values:
+    #             df.loc[i, value] = value
+    #     return df.fillna("")
+
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        df = pd.DataFrame()
-        for i, values in column.str.split(pat=self._delimiter).iteritems():
-            for value in values:
-                df.loc[i, value] = value
-        return df.fillna("")
+        return column.str.get_dummies(sep=self._delimiter)
 
     def __str__(self) -> str:
         return "SplitAlign({})".format(self._delimiter)
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
-        """Same arguments as regular split."""
-        return Split.arguments(column)
+        """Get possible delimiters.
+        
+        Similar to regular split, but filter on number of unique values.
+
+        """
+
+        # compute max number of categories
+        if cls.max_categories <= 1:
+            max_categories = len(column) * max_categories
+        else:
+            max_categories = cls.max_categories
+
+        # filter arguments that yield more than the allowed number
+        # of categories.
+        arguments_all = Split.arguments(column)
+        arguments = list()
+        for argument in arguments:
+            n_categories = count_unique(
+                column.str.split(pat=re.escape(argument[0]), expand=True)
+            )
+            if n_categories < max_categories:
+                arguments.append(argument)
+
+        return arguments
 
 
 class ExtractNumber(StringTransformation):
@@ -211,7 +239,7 @@ class Lowercase(StringTransformation):
     """Convert all strings to lowercase."""
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return column.str.lower()
+        return column.str.lower().to_frame()
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
