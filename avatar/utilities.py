@@ -24,19 +24,12 @@ def count_unique(df: pd.DataFrame) -> int:
     return pd.unique(df.values.ravel()).size
 
 
-def to_mercs(df: pd.DataFrame) -> Tuple[np.ndarray,]:
-    """Encode dataframe for MERCS.
-    
-    We assume numerical values will have a numerical dtype and convert
-    everything else to nominal integers.
-
-    """
-    new = pd.DataFrame()
-    nom = set()
-    for i, column in enumerate(df):
-        if df[column].dtype.name in ["category", "object"]:
-            new[column] = df[column].astype("category").cat.codes.replace(-1, np.nan)
-            nom.add(i)
-        else:
-            new[column] = df[column]
-    return new.values, nom
+def normalize(s: pd.Series) -> pd.Series:
+    """Min-max scale."""
+    mi = s.min()
+    ma = s.max()
+    if mi == ma:
+        if ma == 0:
+            return s
+        return s / ma
+    return (s - s.min()) / (s.max() - s.min())

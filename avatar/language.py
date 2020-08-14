@@ -1,5 +1,6 @@
 """Simple transformation language."""
 import pandas as pd
+from pandas._typing import Label
 from typing import List, Tuple, Optional
 from .transformations import *
 
@@ -81,18 +82,50 @@ class WranglingLanguage:
             transformations = default_transformations
         self._transformations = transformations
 
-    def transformations(self, df: pd.DataFrame) -> List[Tuple[str, Transformation]]:
-        """Get allowed arguments for wrangling transformation."""
+    def transformations(
+        self,
+        df: pd.DataFrame,
+        columns: Optional[List[Label]] = None,
+        target: Label = None,
+    ) -> List[Tuple[str, Transformation]]:
+        """Get allowed arguments for wrangling transformation.
+        
+        Args:
+            columns: Subset of columns.
+    
+        """
+        if columns is None:
+            columns = df.columns.to_list()
+        if target is not None:
+            columns.remove(target)
         transformations = list()
         for transformation in self._transformations:
             for i, column in df.iteritems():
-                if column.dtype.name in transformation.allowed:
+                if i in columns and column.dtype.name in transformation.allowed:
                     arguments = transformation.arguments(column)
                     for argument in arguments:
                         transformations.append(
                             WranglingTransformation(i, transformation(*argument))
                         )
         return transformations
+
+    def expand(
+        self,
+        df: pd.DataFrame,
+        columns: Optional[List[Label]] = None,
+        target: Label = None,
+    ) -> pd.DataFrame:
+        """Expand dataframe with all transformations.
+        
+        Args:
+            columns: Subset of columns to consider.
+            target: If provided, will skip this column.
+
+        """
+        transformations = self.transformations(df, columns=columns, target=target)
+        for transformation in transformations:
+            df = transformation(df)
+        return df
 
 
 class WranglingProgram:

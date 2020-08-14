@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Union
 from .base import Transformation
 
 
@@ -8,6 +8,7 @@ class OneHot(Transformation):
     """One hot encode a column."""
 
     allowed = ["object", "int64", "category"]
+    threshold: Union[float, int] = 0.5
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
         return pd.get_dummies(column)
@@ -15,15 +16,36 @@ class OneHot(Transformation):
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
         """Require at least one duplicate value."""
-        if column.duplicated().any():
+        threshold = len(column) * cls.threshold if cls.threshold < 1 else cls.threshold
+        if column.nunique() < threshold:
             return [()]
         return []
 
 
 class NaN(Transformation):
-    """Encode a new value as NA."""
+    """Encode a new value as NaN."""
 
     allowed = ["object", "category"]
+
+    trigger = [
+        "unknown",
+        "unknwon",
+        "some",
+        "not",
+        "fake",
+        "any",
+        "?",
+        "000",
+        "111",
+        "999",
+    ]
+    """List of DMV triggers.
+
+    We use a list of trigger values to detect possible
+    disguised missing values. These are obtained from
+    experience and polls on Reddit an Kaggle.
+
+    """
 
     def __init__(self, value: str):
         self._value = value
@@ -35,12 +57,15 @@ class NaN(Transformation):
         return "NaN({})".format(self._value)
 
     @classmethod
-    def arguments(self, column: pd.Series) -> List[Tuple[str]]:
+    def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
+        """Heuristic."""
         arguments = list()
-        for value, count in column.value_counts().iteritems():
-            if count > 1:
+        for value in column.drop_duplicates().dropna():
+            if cls.dmv(value):
                 arguments.append((value,))
-            else:
-                break
         return arguments
-        # return [(v,) for v in column.drop_duplicates().to_list()]
+
+    @classmethod
+    def dmv(cls, value: str) -> bool:
+        """Check if value is a disguised missing value."""
+        return any(trigger in value.lower() for trigger in cls.trigger)
