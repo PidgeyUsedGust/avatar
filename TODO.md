@@ -10,7 +10,7 @@
 * Perform feature selection on the resulting dataset. We are looking for "good" features to be used in evaluating the overall progress and all "not good" features for wrangling in the next iteration.
 
   * Use shallow trees over sampled subsets of features and combine feature importances.
-  * Use AdaBoost with decision stumps for implicit feature selection,which is nice because we can refer to existing work.
+  * Use AdaBoost with decission stumps for implicit feature selection,which is nice because we can refer to existing work.
 
 ## Transformations
 
@@ -20,3 +20,4 @@
 ## Implementation
 
 * Add support for recovering original columns.
+* Support renaming a columns to "Target" for implicit target selection. 

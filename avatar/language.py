@@ -14,12 +14,15 @@ default_transformations = [
     Lowercase,
     # type
     Numerical,
-    Categorical,
     # encoding
     OneHot,
     NaN,
     # semantic
     WordToNumber,
+    # imputation
+    MeanImputation,
+    ModeImputation,
+    MedianImputation
 ]
 """List of all supported transformations."""
 

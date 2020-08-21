@@ -33,3 +33,7 @@ def normalize(s: pd.Series) -> pd.Series:
             return s
         return s / ma
     return (s - s.min()) / (s.max() - s.min())
+
+
+def xor(a: bool, b: bool) -> bool:
+    return (a and b) or (not a and not b)

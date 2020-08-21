@@ -8,7 +8,9 @@ class OneHot(Transformation):
     """One hot encode a column."""
 
     allowed = ["object", "int64", "category"]
-    threshold: Union[float, int] = 0.5
+
+    threshold: Union[float, int] = 20
+    """Maximal number of categories."""
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
         return pd.get_dummies(column)
@@ -35,9 +37,9 @@ class NaN(Transformation):
         "fake",
         "any",
         "?",
-        "000",
-        "111",
-        "999",
+        "0000",
+        "1111",
+        "9999",
     ]
     """List of DMV triggers.
 

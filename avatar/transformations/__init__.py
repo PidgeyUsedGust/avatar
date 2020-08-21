@@ -1,3 +1,4 @@
+from .imputation import *
 from .encoding import *
 from .semantic import *
 from .filter import *
@@ -17,11 +18,15 @@ __all__ = [
     "Lowercase",
     # type
     "Numerical",
-    "Categorical",
+    # "Categorical",
     # encoding
     "OneHot",
     "NaN",
     # semantic
     "WordToNumber",
+    # imputation
+    "MeanImputation",
+    "ModeImputation",
+    "MedianImputation"
 ]
 """List of all transformations exported."""

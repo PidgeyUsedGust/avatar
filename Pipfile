@@ -4,6 +4,7 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [dev-packages]
+black = "*"
 
 [packages]
 avatar = {editable = true,path = "."}
@@ -12,11 +13,15 @@ mercs = "*"
 jupyter = "*"
 word2number = "*"
 sklearn = "*"
-skfeature = {editable = true, git = "https://github.com/jundongl/scikit-feature.git"}
+skfeature = {editable = true,git = "https://github.com/jundongl/scikit-feature.git"}
 xgboost = "*"
+matplotlib = "*"
 
 [requires]
 python_version = "3.8"
 
 [scripts]
 install_kernel = "python -m ipykernel install --user --name=avatar"
+
+[pipenv]
+allow_prereleases = true

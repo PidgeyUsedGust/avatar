@@ -9,115 +9,193 @@ import pandas as pd
 import numpy as np
 from pandas._typing import Label
 from abc import ABC, abstractmethod
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Set, Optional, Union
 from functools import cached_property
 from collections import defaultdict
+from sklearn.metrics import accuracy_score
 from mercs.core import Mercs
+from mercs.algo.selection import base_selection_algorithm, random_selection_algorithm
 from .utilities import normalize
 
 
-_merc_config = dict(
-    # Induction
-    max_depth=1,
-    selection_algorithm="default",
-    nb_targets=1,
-    nb_iterations=1,
-    n_jobs=1,
-    # Inference
-    inference_algorithm="own",
-    prediction_algorithm="mi",
-    max_steps=8,
-)
-"""Configuration for MERCS.
+class FeatureEvaluator:
+    """Feature evaluator.
+    
+    Given a mask of which features to include, get
+    accuracy of the model and relevance of individual
+    features.
+    
+    """
 
-Mainly added for experimental purposes. Only change this if you
-know what you're doing."""
-
-
-class Analyzer:
-    """Base analyser."""
-
-    @abstractmethod
-    def predictive_accuracy(self) -> float:
-        pass
-
-    @abstractmethod
-    def feature_importances(self) -> Dict[str, float]:
-        pass
-
-
-class SupervisedAnalyzer(Analyzer):
-    """Analysis with respect to a target column."""
-
-    def __init__(self, df: pd.DataFrame, target: Label):
-        self._df = df
-        self._target = target
-        self._model = None
-
-    def analyze(self, iterations: int = 1):
-        # prepare data
-        data, nominal = to_mercs(self._df)
-        custom_m_code = to_m_codes(self._df, self._target)
-        # train model
-        self._model = Mercs(**_merc_config)
-        self._model.fit(data, nominal_attributes=nominal, m_codes=custom_m_code)
-
-    def feature_importances(self) -> Dict[str, float]:
-        """Get feature importances.
-        
-        Returns:
-            A mapping from column names to feature importances.
-
-        """
-        accuracies = np.sum(self._model.m_fimps, axis=0)
-        importance = {
-            column: accuracies[i] for i, column in enumerate(self._df.columns)
-        }
-        return importance
-
-    def predictive_accuracy(self):
-        """Predictive accuracy."""
-        print(self._model.m_score)
-
-
-class UnsupervisedAnalyzer:
-    """Analyse a dataset."""
-
-    def __init__(self, df: pd.DataFrame):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        target: Label = None,
+        method: Optional[str] = "shap",
+        data_size: Union[int, float] = 1.0,
+        test_size: Union[int, float] = 0.1,
+        **configuration
+    ):
         """
         
         Args:
-            target: Target column for prediction.
+            data_size: Number of examples to sample from the dataframe. If
+                an integer, use that many examples. If a float, use that
+                percentage of examples. By default, use the whole dataset.
+            test_size: Number of examples to use for testing. If an integer,
+                use that number of examples. If a float, use that percentage
+                of examples.
+            method: Method to use for computing feature relevances from
+                decision trees. Can be `shap` (default) or `None`.
+        
+        Kwargs:
+            Any other arguments are passed to the `Mercs` constructor.
 
         """
 
-        self._df = df
-        self._model = None
+        # compute data size
+        if isinstance(data_size, float):
+            data_size = int(data_size * len(df.index))
+        self._data_size = data_size
 
-        # train the model
-        self.analyze()
+        # compute test size
+        if isinstance(test_size, float):
+            test_size = int(test_size * data_size)
+        self._test_size = test_size
 
-    def analyze(self):
-        data, nominal = to_mercs(self._df)
-        self._model = Mercs(**_merc_config)
-        self._model.fit(data, nominal_attributes=nominal)
+        # convert to mercs
+        data, nominal = to_mercs(df)
 
-    def feature_importances(self) -> Dict[str, float]:
-        """Get feature importances.
+        self._columns = df.columns
+        self._target = target
+        self._nominal = nominal
+
+        # make split
+        train, test = self._split(data)
+        self._train = train.values
+        self._test = np.nan_to_num(test.values)
+
+        # settings for training
+        self._m_args = dict(calculation_method_feature_importances=method)
+        self._m_args.update(configuration)
+
+        # cache for models
+        self._cache = dict()
+
+    def predictions(self, mask: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Perform predictions.
         
         Returns:
-            A mapping from column names to feature importances.
+            A list codes and the predictions for that code on the test set.
+     
+        """
+        predictions = list()
+        model = self.model(mask)
+        for m_code in model.m_codes:
+            prediction = model.predict(self._test, q_code=m_code)
+            predictions.append((m_code, prediction))
+        return predictions
+
+    def accuracy(self, mask: np.ndarray) -> float:
+        accuracies = list()
+        for code, prediction in self.predictions(mask):
+            accuracies.append(accuracy_score(self._truth(code), prediction))
+        return np.mean(accuracies)
+
+    def importances(self, mask: np.ndarray) -> np.ndarray:
+        return np.sum(self.model(mask).m_fimps, axis=0)
+
+    def evaluate(self, mask: np.ndarray):
+        """Evaluate.
+        
+        Args:
+            mask: Mask of which features to use.
+        
+        Returns:
+            Tuple of accuracy and individual feature importances.
 
         """
-        accuracies = np.sum(self._model.m_fimps, axis=0)
-        importance = {
-            column: accuracies[i] for i, column in enumerate(self._df.columns)
-        }
-        return importance
+        return self.accuracy(mask), self.importances(mask)
 
-    def predictive_accuracy(self):
-        """Predictive accuracy."""
-        print(self._model.m_score)
+    def model(self, mask: np.ndarray) -> Mercs:
+        """Generate model for a given mask.
+        
+        Returns:
+            A model for every code in `self._code(mask)`.
+
+        """
+        key = mask.tobytes()
+        if key not in self._cache:
+            model = Mercs(**self._m_args)
+            model.fit(
+                self._train, nominal_attributes=self._nominal, m_codes=self._code(mask)
+            )
+            self._cache[key] = model
+        return self._cache[key]
+
+    def _code(self, mask: np.ndarray) -> np.ndarray:
+        """Generate m_codes for a given feature mask."""
+
+        mask = mask.astype(bool)
+
+        # no target, use mercs selection algorithm
+        if self._target is None:
+            m_code = random_selection_algorithm(
+                self._metadata(), nb_targets=1, nb_iterations=1, fraction_missing=0.0
+            )
+
+        # else make m_code for target
+        else:
+            m_code = to_m_codes(self._columns, self._target)
+
+        # hide mask
+        output = m_code == 1
+        m_code[:, mask] = -1
+        m_code[output] = 1
+
+        return m_code
+
+    def _query(self, code: np.ndarray) -> np.ndarray:
+        """Convert m_code back into query."""
+        code = np.copy(code)
+        code[code == -1] = 0
+        return code
+
+    def _truth(self, code: np.ndarray) -> np.ndarray:
+        """Get truth for m_code."""
+        return self._test[:, code == 1][:, 0]
+
+    def _metadata(self):
+        """Return metadata."""
+        attributes = set(range(len(self._columns)))
+        return dict(
+            n_attributes=len(attributes),
+            nominal_attributes=self._nominal,
+            numeric_attributes=attributes - self._nominal,
+        )
+
+    def _split(self, df: pd.DataFrame, min_full: int = 10):
+        """Make train/test split.
+        
+        Custom train/test split tha guarantees that the
+        training data contains sufficient rows without nan.
+        
+        Args:
+            min_full: Minimal number of rows without missing values.
+        
+        """
+
+        # get min_full rows from the dataframe
+        full = df[df.notna().all(axis=1)].sample(min_full)
+        rest = df[~df.index.isin(full.index)]
+
+        # sample test and train
+        test = rest.sample(self._test_size)
+        train = rest[~rest.index.isin(test.index)].sample(
+            self._data_size - self._test_size - min_full
+        )
+
+        return pd.concat((full, train), axis=0), test
 
 
 class FeatureSelector(ABC):
@@ -174,8 +252,6 @@ class ColumnSampler:
 
     def is_valid(self, df: pd.DataFrame):
         """Check if set of columns is valid."""
-        # print(df.all(axis=1).sum())
-        # return df.all(axis=1).any()
         return df.all(axis=1).sum() > 10
 
     def make_result(self, sampled: List[Label]) -> pd.DataFrame:
@@ -258,7 +334,7 @@ class SmartColumnSampler(WeightedColumnSampler):
         return self.counts.add(super().weights) / 2
 
 
-def to_mercs(df: pd.DataFrame) -> Tuple[np.ndarray,]:
+def to_mercs(df: pd.DataFrame) -> Tuple[pd.DataFrame, Set[Label]]:
     """Encode dataframe for MERCS.
     
     We assume numerical values will have a numerical dtype and convert
@@ -273,13 +349,15 @@ def to_mercs(df: pd.DataFrame) -> Tuple[np.ndarray,]:
             nom.add(i)
         else:
             new[column] = df[column]
-    return new.values, nom
+    return new, nom
 
 
-def to_m_codes(df: pd.DataFrame, target: Label):
+def to_m_codes(columns: pd.Index, target: Label):
     """Generate m_codes for a target."""
-    m_codes = np.zeros((1, len(df.columns)))
-    m_codes[0, df.columns.get_loc(target)] = 1
+    if target is None:
+        return None
+    m_codes = np.zeros((1, len(columns)))
+    m_codes[0, columns.get_loc(target)] = 1
     return m_codes
 
 
@@ -303,4 +381,3 @@ def available_models() -> List[str]:
         finally:
             models.append(short)
     return models
-
