@@ -497,25 +497,3 @@ class SmartColumnSampler(WeightedColumnSampler):
     def smart_weights(self):
         """Combine weights with count."""
         return self.counts.add(super().weights) / 2
-
-
-def available_models() -> List[str]:
-    from importlib import import_module
-
-    # list of possible classes
-    possible = [
-        ("xgboost", "XGBClassifier", "XGB"),
-        ("lightgbm", "LGBMClassifier", "LGBM"),
-        ("catboost", "CatBoostClassifier", "CB"),
-        ("wekalearn", "RandomForestClassifier", "weka"),
-    ]
-    models = list()
-    for package, classname, short in possible:
-        try:
-            module = import_module(package)
-            class_ = getattr(module, classname)
-        except:
-            pass
-        finally:
-            models.append(short)
-    return models
