@@ -45,8 +45,8 @@ class Split(StringTransformation):
             delimiters = [d for d in delimiters if d]
             for delimiter in delimiters:
                 for substring in get_substrings(delimiter):
-                    arguments.add(("{}".format(re.escape(substring)),))
-                    # arguments.add(("{}".format(substring),))
+                    # arguments.add(("{}".format(re.escape(substring)),))
+                    arguments.add(("{}".format(substring),))
         return arguments
 
 
@@ -105,7 +105,7 @@ class SplitAlign(StringTransformation):
         # of categories.
         arguments_all = Split.arguments(column)
         arguments = list()
-        for argument in arguments:
+        for argument in arguments_all:
             n_categories = count_unique(
                 column.str.split(pat=re.escape(argument[0]), expand=True)
             )

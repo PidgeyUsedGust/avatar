@@ -13,9 +13,10 @@ from typing import Dict, Tuple, List, Set, Optional, Union
 from functools import cached_property
 from collections import defaultdict
 from sklearn.metrics import accuracy_score
+from sklearn.tree import export_text
 from mercs.core import Mercs
 from mercs.algo.selection import base_selection_algorithm, random_selection_algorithm
-from .utilities import normalize
+from .utilities import normalize, to_mercs, to_m_codes
 
 
 class FeatureEvaluator:
@@ -31,15 +32,15 @@ class FeatureEvaluator:
         self,
         df: pd.DataFrame,
         target: Label = None,
-        method: Optional[str] = "shap",
-        data_size: Union[int, float] = 1.0,
+        method: Optional[str] = None,
+        n_samples: Union[int, float] = 1.0,
         test_size: Union[int, float] = 0.1,
         **configuration
     ):
         """
         
         Args:
-            data_size: Number of examples to sample from the dataframe. If
+            n_samples: Number of examples to sample from the dataframe. If
                 an integer, use that many examples. If a float, use that
                 percentage of examples. By default, use the whole dataset.
             test_size: Number of examples to use for testing. If an integer,
@@ -54,13 +55,13 @@ class FeatureEvaluator:
         """
 
         # compute data size
-        if isinstance(data_size, float):
-            data_size = int(data_size * len(df.index))
-        self._data_size = data_size
+        if isinstance(n_samples, float):
+            n_samples = int(n_samples * len(df.index))
+        self._n_samples = n_samples
 
         # compute test size
         if isinstance(test_size, float):
-            test_size = int(test_size * data_size)
+            test_size = int(test_size * self._n_samples)
         self._test_size = test_size
 
         # convert to mercs
@@ -131,6 +132,9 @@ class FeatureEvaluator:
                 self._train, nominal_attributes=self._nominal, m_codes=self._code(mask)
             )
             self._cache[key] = model
+            # print(mask)
+            # print([self._columns[i] for i, v in enumerate(mask) if v == 0])
+            # print(export_text(model.m_list[0].model))
         return self._cache[key]
 
     def _code(self, mask: np.ndarray) -> np.ndarray:
@@ -192,41 +196,202 @@ class FeatureEvaluator:
         # sample test and train
         test = rest.sample(self._test_size)
         train = rest[~rest.index.isin(test.index)].sample(
-            self._data_size - self._test_size - min_full
+            self._n_samples - self._test_size - min_full
         )
 
         return pd.concat((full, train), axis=0), test
 
 
-class FeatureSelector(ABC):
-    """Base feature selector."""
+class FoldedFeatureEvaluator:
+    """Feature evaluator.
+    
+    Given a mask of which features to include, get
+    accuracy of the model and relevance of individual
+    features.
+    
+    """
 
-    def __init__(self, df: pd.DataFrame):
-        self._df = df
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        target: Label = None,
+        n_folds: int = 5,
+        n_samples: Union[int, float] = 1.0,
+        test_size: Union[int, float] = 0.1,
+        method: Optional[str] = None,
+        **configuration
+    ):
+        """
+        
+        Args:
+            n_samples: Number of examples to sample from the dataframe. If
+                an integer, use that many examples. If a float, use that
+                percentage of examples. By default, use the whole dataset.
+            folds: Number of folds. In each fold, we take `n_samples` 
+            method: Method to use for computing feature relevances from
+                decision trees. Can be `shap` (default) or `None`.
+        
+        Kwargs:
+            Any other arguments are passed to the `Mercs` constructor.
 
-        self.select()
+        """
 
-    @abstractmethod
-    def select(self) -> List[Label]:
-        pass
+        # compute data size
+        if isinstance(n_samples, float):
+            n_samples = int(n_samples * len(df.index))
+        self._n_samples = n_samples
 
-    @property
-    @abstractmethod
-    def selected(self) -> List[Label]:
-        pass
+        # compute test size
+        if isinstance(test_size, float):
+            test_size = int(test_size * self._n_samples)
+        self._test_size = test_size
 
-    @property
-    def not_selected(self) -> List[Label]:
-        pass
+        # prepare data
+        data, nominal = to_mercs(df)
+        self._columns = df.columns
+        self._target = target
+        self._nominal = nominal
 
+        # make split
+        self._folds = list()
+        for _ in range(n_folds):
+            train, test = self._split(data)
+            train = train.values
+            test = np.nan_to_num(test.values)
+            self._folds.append((train, test))
 
-# class SimilarFeatureSelector(FeatureSelector):
-#     """Select features based on making the same predictions."""
+        # settings for training
+        self._m_args = dict(calculation_method_feature_importances=method)
+        self._m_args.update(configuration)
 
-#     def select(self) -> List[Label]:
-#         pass
+        # cache for model
+        self._cache = dict()
 
-#     def select_correlation(self, df: pd.)
+    def predictions(self, mask: np.ndarray) -> List[Tuple[int, np.ndarray, np.ndarray]]:
+        """Perform predictions for all folds.
+        
+        Returns:
+            A list of (fold, code, prediction) tuples.
+     
+        """
+        predictions = list()
+        models = self.models(mask)
+        for i, model in enumerate(models):
+            _, test = self._folds[i]
+            for m_code in model.m_codes:
+                prediction = model.predict(test, q_code=m_code)
+                predictions.append((i, m_code, prediction))
+        return predictions
+
+    def accuracy(self, mask: np.ndarray) -> float:
+        """Average accuracy over all folds."""
+        accuracies = [
+            accuracy_score(self._truth(code, fold), prediction)
+            for fold, code, prediction in self.predictions(mask)
+        ]
+        return np.mean(accuracies)
+
+    def importances(self, mask: np.ndarray) -> np.ndarray:
+        importances = np.zeros((len(self._folds), len(self._columns)))
+        for i, model in enumerate(self.models(mask)):
+            importances[i] = np.sum(model.m_fimps, axis=0)
+        return np.mean(importances, axis=0)
+
+    def evaluate(self, mask: np.ndarray):
+        """Evaluate.
+        
+        Args:
+            mask: Mask of which features to use.
+        
+        Returns:
+            Tuple of accuracy and individual feature importances.
+
+        """
+        return self.accuracy(mask), self.importances(mask)
+
+    def models(self, mask: np.ndarray) -> List[Mercs]:
+        """Generate models for a given mask.
+        
+        Returns:
+            A model train/test split.
+
+        """
+        key = mask.tobytes()
+        if key not in self._cache:
+            self._cache[key] = list()
+            code = self._code(mask)
+            for (train, _) in self._folds:
+                model = Mercs(**self._m_args)
+                model.fit(train, nominal_attributes=self._nominal, m_codes=code)
+                self._cache[key].append(model)
+            # print(mask)
+            # print([self._columns[i] for i, v in enumerate(mask) if v == 0])
+            # print(export_text(model.m_list[0].model))
+        return self._cache[key]
+
+    def _code(self, mask: np.ndarray) -> np.ndarray:
+        """Generate m_codes for a given feature mask."""
+
+        mask = mask.astype(bool)
+
+        # no target, use mercs selection algorithm
+        if self._target is None:
+            m_code = random_selection_algorithm(
+                self._metadata(), nb_targets=1, nb_iterations=1, fraction_missing=0.0
+            )
+
+        # else make m_code for target
+        else:
+            m_code = to_m_codes(self._columns, self._target)
+
+        # hide mask
+        output = m_code == 1
+        m_code[:, mask] = -1
+        m_code[output] = 1
+
+        return m_code
+
+    def _query(self, code: np.ndarray) -> np.ndarray:
+        """Convert m_code back into query."""
+        code = np.copy(code)
+        code[code == -1] = 0
+        return code
+
+    def _truth(self, code: np.ndarray, fold: int) -> np.ndarray:
+        """Get truth for m_code."""
+        return self._folds[fold][1][:, code == 1][:, 0]
+
+    def _metadata(self):
+        """Return metadata."""
+        attributes = set(range(len(self._columns)))
+        return dict(
+            n_attributes=len(attributes),
+            nominal_attributes=self._nominal,
+            numeric_attributes=attributes - self._nominal,
+        )
+
+    def _split(self, df: pd.DataFrame, min_full: int = 10):
+        """Make train/test split.
+        
+        Custom train/test split tha guarantees that the
+        training data contains sufficient rows without nan.
+        
+        Args:
+            min_full: Minimal number of rows without missing values.
+        
+        """
+
+        # get min_full rows from the dataframe
+        full = df[df.notna().all(axis=1)].sample(min_full)
+        rest = df[~df.index.isin(full.index)]
+
+        # sample test and train
+        test = rest.sample(self._test_size)
+        train = rest[~rest.index.isin(test.index)].sample(
+            self._n_samples - self._test_size - min_full
+        )
+
+        return pd.concat((full, train), axis=0), test
 
 
 class ColumnSampler:
@@ -332,33 +497,6 @@ class SmartColumnSampler(WeightedColumnSampler):
     def smart_weights(self):
         """Combine weights with count."""
         return self.counts.add(super().weights) / 2
-
-
-def to_mercs(df: pd.DataFrame) -> Tuple[pd.DataFrame, Set[Label]]:
-    """Encode dataframe for MERCS.
-    
-    We assume numerical values will have a numerical dtype and convert
-    everything else to nominal integers.
-
-    """
-    new = pd.DataFrame()
-    nom = set()
-    for i, column in enumerate(df):
-        if df[column].dtype.name in ["category", "object"]:
-            new[column] = df[column].astype("category").cat.codes.replace(-1, np.nan)
-            nom.add(i)
-        else:
-            new[column] = df[column]
-    return new, nom
-
-
-def to_m_codes(columns: pd.Index, target: Label):
-    """Generate m_codes for a target."""
-    if target is None:
-        return None
-    m_codes = np.zeros((1, len(columns)))
-    m_codes[0, columns.get_loc(target)] = 1
-    return m_codes
 
 
 def available_models() -> List[str]:

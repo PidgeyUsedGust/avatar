@@ -1,5 +1,6 @@
 """Utility functions."""
-from typing import Sequence, List, Tuple
+from typing import Sequence, List, Tuple, Set
+from pandas._typing import Label
 import pandas as pd
 import numpy as np
 
@@ -37,3 +38,30 @@ def normalize(s: pd.Series) -> pd.Series:
 
 def xor(a: bool, b: bool) -> bool:
     return (a and b) or (not a and not b)
+
+
+def to_mercs(df: pd.DataFrame) -> Tuple[pd.DataFrame, Set[Label]]:
+    """Encode dataframe for MERCS.
+    
+    We assume numerical values will have a numerical dtype and convert
+    everything else to nominal integers.
+
+    """
+    new = pd.DataFrame()
+    nom = set()
+    for i, column in enumerate(df):
+        if df[column].dtype.name in ["category", "object"]:
+            new[column] = df[column].astype("category").cat.codes.replace(-1, np.nan)
+            nom.add(i)
+        else:
+            new[column] = df[column]
+    return new, nom
+
+
+def to_m_codes(columns: pd.Index, target: Label):
+    """Generate m_codes for a target."""
+    if target is None:
+        return None
+    m_codes = np.zeros((1, len(columns)))
+    m_codes[0, columns.get_loc(target)] = 1
+    return m_codes

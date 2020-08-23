@@ -22,7 +22,7 @@ default_transformations = [
     # imputation
     MeanImputation,
     ModeImputation,
-    MedianImputation
+    MedianImputation,
 ]
 """List of all supported transformations."""
 

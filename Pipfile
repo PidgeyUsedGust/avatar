@@ -13,7 +13,6 @@ mercs = "*"
 jupyter = "*"
 word2number = "*"
 sklearn = "*"
-skfeature = {editable = true,git = "https://github.com/jundongl/scikit-feature.git"}
 xgboost = "*"
 matplotlib = "*"
 
