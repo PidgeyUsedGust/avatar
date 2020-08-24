@@ -13,6 +13,7 @@ from typing import Dict, Tuple, List, Set, Optional, Union
 from functools import cached_property
 from collections import defaultdict
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import KFold
 from sklearn.tree import export_text
 from mercs.core import Mercs
 from mercs.algo.selection import base_selection_algorithm, random_selection_algorithm
@@ -392,6 +393,74 @@ class FoldedFeatureEvaluator:
         )
 
         return pd.concat((full, train), axis=0), test
+
+
+class DatasetEvaluator:
+    """Dataset evaluator."""
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        target: Optional[Label] = None,
+        n_folds: int = 5,
+        **configuration
+    ):
+
+        # prepare data
+        data, nominal = to_mercs(df)
+        self._data = data.values
+        self._nominal = nominal
+        self._columns = df.columns
+        self._target = target
+
+        self._n_folds = n_folds
+
+        self._m_args = dict()
+        self._m_args.update(configuration)
+
+    def evaluate(self):
+        """Evaluate on folds."""
+        # generate a code
+        code = self._code()
+        print(code)
+        # run the train, test splits.
+        accuracies = list()
+        for train, test in self._folds():
+            test = np.nan_to_num(test)
+            # learn model
+            model = Mercs(**self._m_args)
+            model.fit(train, nominal_attributes=self._nominal, m_codes=code)
+            # make prediction for each model
+            for m_code in model.m_codes:
+                prediction = model.predict(test, q_code=m_code)
+                truth = test[:, m_code == 1][:, 0]
+                accuracies.append(accuracy_score(prediction, truth))
+        return np.mean(accuracies)
+
+    def _code(self) -> np.ndarray:
+        """Generate m_codes."""
+        # no target, use mercs selection algorithm
+        if self._target is None:
+            m_code = random_selection_algorithm(
+                self._metadata(), nb_targets=1, nb_iterations=1, fraction_missing=0.0
+            )
+        # else make m_code for target
+        else:
+            m_code = to_m_codes(self._columns, self._target)
+        return m_code
+
+    def _folds(self):
+        """Make train/test splits.
+        
+        Args:
+            min_full: Minimal number of rows without missing values.
+        
+        Yields:
+            A (train, test) split at each iteration.
+
+        """
+        for train, test in KFold(n_splits=self._n_folds).split(self._data):
+            yield self._data[train], self._data[test]
 
 
 class ColumnSampler:
