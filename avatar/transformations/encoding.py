@@ -17,9 +17,10 @@ class OneHot(Transformation):
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
-        """Require at least one duplicate value."""
+        """Require at least three and at most most `threshold` categories"""
         threshold = len(column) * cls.threshold if cls.threshold < 1 else cls.threshold
-        if column.nunique() < threshold:
+        unique = column.nunique()
+        if unique < threshold and unique > 2:
             return [()]
         return []
 

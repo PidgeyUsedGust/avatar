@@ -115,16 +115,17 @@ class SplitAlign(StringTransformation):
         return arguments
 
 
-class ExtractNumber(StringTransformation):
+class ExtractNumberPattern(StringTransformation):
     """Extract a number from text.
     
     Can either extract any number or a fixed pattern.
 
-    Regex for extracting numbers was taken from https://stackoverflow.com/a/4703508.
+    Regex for extracting numbers was taken from https://stackoverflow.com/a/4703508
+    where \. was replaced with [.,] to also match commas.
 
     """
 
-    default = r"([-+]?(?:(?:\d*\.\d+)|(?:\d+\.?))(?:[Ee][+-]?\d+)?)"
+    default = r"([-+]?(?:(?:\d*[.,]\d+)|(?:\d+[.,]?))(?:[Ee][+-]?\d+)?)"
     table = {ord(value): "0" for value in string.digits}
 
     def __init__(self, pattern: str = ""):
@@ -134,7 +135,10 @@ class ExtractNumber(StringTransformation):
             self._regex = pattern
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return column.str.extract(pat=self._regex, expand=True)
+        expanded = column.str.extract(pat=self._regex, expand=True)
+        expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
+        return expanded
+        # return column.str.extract(pat=self._regex, expand=True).astype("float")
 
     def __str__(self) -> str:
         return "ExtractNumber({})".format(self._regex[8:-8])
@@ -151,13 +155,45 @@ class ExtractNumber(StringTransformation):
         candidates = {cls.default}
         candidates.update(cls.pattern(number) for number in np.unique(numbers))
         candidates.update(re.sub(r"\{\d+\}", "+", c) for c in set(candidates))
-        # select valid
-        patterns = list()
-        for candidate in candidates:
-            counts = column.str.extractall(pat=candidate).groupby(level=0).count()
-            if (counts[0] == 1).all() and len(counts) == len(column):
-                patterns.append(candidate)
-        return [(pattern,) for pattern in patterns]
+        return [(pattern,) for pattern in candidates]
+
+    @classmethod
+    def translate(cls, string: str) -> str:
+        return string.translate(cls.table)
+
+    @classmethod
+    def pattern(cls, string: str) -> List[str]:
+        pattern = ""
+        for k, g in itertools.groupby(string):
+            if k == "0":
+                pattern += r"\d{{{}}}".format(len(list(g)))
+            else:
+                pattern += re.escape(k)
+        # return "(" + pattern + ")"
+        return r"(?:^|\D)(" + pattern + r")(?:\D|$)"
+
+
+class ExtractNumber(StringTransformation):
+    """Exctract first number."""
+
+    default = r"([-+]?(?:(?:\d*[,.]\d+)|(?:\d+[.,]?))(?:[Ee][+-]?\d+)?)"
+    table = {ord(value): "0" for value in string.digits}
+
+    def __call__(self, column: pd.Series) -> pd.DataFrame:
+        expanded = column.str.extract(pat=self.default, expand=True)
+        expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
+        return expanded
+
+    def __str__(self) -> str:
+        return "ExtractNumber()"
+
+    @classmethod
+    def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
+        column = column.dropna().map(cls.translate).drop_duplicates()
+        numbers = column.str.extract(pat=cls.default, expand=True).iloc[:, 0]
+        if numbers.notna().any():
+            return [()]
+        return []
 
     @classmethod
     def translate(cls, string: str) -> str:
