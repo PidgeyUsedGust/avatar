@@ -243,15 +243,16 @@ class FeatureEvaluator:
         # compute test size
         if isinstance(self._test_size, float):
             self._test_size = int(self._test_size * self._n_samples)
-        # convert to mercs
-        data, nominal = to_mercs(df)
         self._columns = df.columns
         self._target = target
+        # get nominal columns, but don't store data
+        # as that will be generated in the folds.
+        _, nominal = to_mercs(df)
         self._nominal = nominal
         # make split
         self._folds = list()
         for _ in range(self._n_folds):
-            train, test = self._split(data)
+            train, test = self._split(df)
             train = train.values
             test = np.nan_to_num(test.values)
             self._folds.append((train, test))
@@ -365,11 +366,17 @@ class FeatureEvaluator:
         
         Custom train/test split tha guarantees that the
         training data contains sufficient rows without nan.
+
+        Each fold is shuffled to minimize the probability
+        of arbitrary encodings becoming good features.
         
         Args:
             min_full: Minimal number of rows without missing values.
         
         """
+
+        # shuffle rows and convert to mercs.
+        df, _ = to_mercs(df.sample(frac=1))
 
         # get min_full rows from the dataframe
         full = df[df.notna().all(axis=1)].sample(min_full)
