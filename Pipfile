@@ -4,10 +4,8 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [dev-packages]
-black = "*"
 
 [packages]
-avatar = {editable = true,path = "."}
 pandas = "*"
 mercs = "*"
 jupyter = "*"
@@ -24,3 +22,7 @@ install_kernel = "python -m ipykernel install --user --name=avatar"
 
 [pipenv]
 allow_prereleases = true
+
+[packages.e1839a8]
+path = "."
+editable = true
