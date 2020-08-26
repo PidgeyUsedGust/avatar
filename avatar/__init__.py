@@ -1,6 +1,6 @@
 import pandas as pd
 from pandas._typing import Label
-from typing import List, Type
+from typing import List, Type, Optional
 from .language import WranglingTransformation, WranglingProgram, WranglingLanguage
 from .selection import Filter, Selector
 from .analysis import FeatureEvaluator, DatasetEvaluator
@@ -21,17 +21,55 @@ def bend(df: pd.DataFrame, target: Label = None) -> pd.DataFrame:
 
 def bend_custom(
     df: pd.DataFrame,
-    target: Label,
-    language: WranglingLanguage,
-    pruning: Filter,
-    preselecion: Filter,
-    featureselection: Selector,
-    featureevaluator: FeatureEvaluator,
-    evaluator: DatasetEvaluator,
+    target: Optional[Label] = None,
+    language: WranglingLanguage = None,
+    pruning: Filter = None,
+    preselection: Filter = None,
+    featureselection: Selector = None,
+    # featureevaluator: FeatureEvaluator = None,
+    evaluation: DatasetEvaluator = None,
+    n_iterations: int = 4,
 ) -> pd.DataFrame:
     """Customizable data bending."""
 
-    pass
+    n_features = len(df.columns)
+    accuracies = list()
+    wrangled = set()
+
+    for i in range(n_iterations):
+
+        print("> Iteration {}".format(i + 1))
+        print("Starting with {} features".format(len(df.columns)))
+
+        # pruning
+        pruned = pruning.select(df, target=target)
+        print("Pruning; {} left".format(len(pruned.columns)))
+
+        # preselection
+        select = preselection.select(pruned, target=target)
+        print("Preselection; {} left".format(len(select.columns)))
+
+        # feature selection
+        featureselection.fit(select, target=target)
+        features = featureselection.select(n_features).tolist()
+        if target not in features:
+            features.append(target)
+        print("Best features")
+        display(select[features])
+
+        # evaluate
+        evaluation.fit(select[features], target=target)
+        accuracy = evaluation.evaluate()
+        accuracies.append(accuracy)
+        print("Accuracy; {}%".format(accuracy))
+
+        if i >= n_iterations - 1:
+            break
+
+        # remember which columns were already wrangled
+        wrangled_new = set(pruned.columns)
+        df = language.expand(pruned, target=target, exclude=wrangled)
+        wrangled.update(wrangled_new)
 
 
 def available_models() -> List[str]:

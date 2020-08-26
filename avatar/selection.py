@@ -24,7 +24,7 @@ class Filter(ABC):
     """Generic filter."""
 
     @abstractmethod
-    def select(self, df: pd.DataFrame) -> pd.DataFrame:
+    def select(self, df: pd.DataFrame, target=None) -> pd.DataFrame:
         pass
 
 
@@ -34,9 +34,9 @@ class StackedFilter:
     def __init__(self, selectors):
         self._selectors = selectors
 
-    def select(self, df: pd.DataFrame):
+    def select(self, df: pd.DataFrame, target=None):
         for selector in self._selectors:
-            df = selector.select(df)
+            df = selector.select(df, target=target)
         return df
 
 
@@ -46,14 +46,14 @@ class MissingFilter:
     def __init__(self, threshold: float = 0.5):
         self._threshold = 0.5
 
-    def select(self, df: pd.DataFrame):
+    def select(self, df: pd.DataFrame, target=None):
         return df.dropna(axis=1, thresh=(self._threshold * len(df.index)))
 
 
 class ConstantFilter:
     """Remove columns with constants."""
 
-    def select(self, df: pd.DataFrame):
+    def select(self, df: pd.DataFrame, target=None):
         return df.loc[:, (df != df.iloc[0]).any()]
 
 
@@ -64,7 +64,7 @@ class IdenticalFilter:
 
     """
 
-    def select(self, df: pd.DataFrame):
+    def select(self, df: pd.DataFrame, target=None):
         return df.drop(self.duplicates(df), axis=1)
 
     def duplicates(self, df: pd.DataFrame):
@@ -81,7 +81,7 @@ class IdenticalFilter:
 class BijectiveFilter:
     """Remove categorical columns that are a bijection."""
 
-    def select(self, df: pd.DataFrame):
+    def select(self, df: pd.DataFrame, target=None):
         return df.drop(self.duplicates(df), axis=1)
 
     def duplicates(self, df: pd.DataFrame):
@@ -100,16 +100,27 @@ class BijectiveFilter:
 class UniqueFilter:
     """Remove columns containing only categorical, unique elements."""
 
-    def select(self, df: pd.DataFrame):
+    def __init__(self, threshold: float = 0.5):
+        """
+
+        Args:
+            threshold: If this percentage of values is unique,
+                filter the column.
+
+        """
+        self._threshold = threshold
+
+    def select(self, df: pd.DataFrame, target=None):
         uniques = list()
         for column in df:
             if df[column].dtype.name in ["object", "category"]:
-                if df[column].dropna().is_unique:
+                unique = df[column].nunique() / df[column].count()
+                if unique > self._threshold:
                     uniques.append(column)
         return df.drop(uniques, axis=1)
 
 
-# class IterativeFilter:
+# class CorrelationFilter:
 #     """Train decision stump for every feature individually."""
 
 #     def __init__(self, threshold: float = 0.95):
@@ -198,7 +209,7 @@ class UniqueFilter:
 #         return df.drop(similar, axis=1)
 
 
-class IterativeFilter:
+class CorrelationFilter:
     """Train decision stump for every feature individually."""
 
     def __init__(self, threshold: float = 0.95):
@@ -275,6 +286,7 @@ class IterativeFilter:
                 if (column_type and other_type) or (not column_type and not other_type):
                     d = np.count_nonzero(column == other) / len(column)
                     if d > self.threshold:
+                        # print("{} is too similar to {}".format(cj, ci))
                         similar.add(cj)
         # similar ones and return
         return df.drop(similar, axis=1)
@@ -358,7 +370,10 @@ class SamplingSelector(Selector):
         self._fimps = self._fimps / self._fimps.sum(axis=1).reshape((-1, 1))
 
     def generate_mask(self) -> np.ndarray:
-        return self._rng.randint(2, size=len(self._df.columns))
+        while True:
+            mask = self._rng.randint(2, size=len(self._df.columns))
+            if mask.sum() > 1:
+                return mask
 
 
 class SFFSelector(Selector):
@@ -379,8 +394,6 @@ class SFFSelector(Selector):
         self._mask = to_m_codes(self._df.columns, target=self._target)[0]
         self._mask[self._mask == 0] = -1
 
-        print(self._mask)
-
         best_score = np.zeros(len(self._df.columns))
         best_fimps = np.zeros((len(self._df.columns), len(self._df.columns)))
 
@@ -389,7 +402,6 @@ class SFFSelector(Selector):
             # forward step (SFS)
             best, (score, fimps) = self.forward()
             self.add(best)
-            print("Adding", self._df.columns[best])
             k += 1
             if k not in self._best:
                 self._best[k] = self.mask()
@@ -527,7 +539,7 @@ class Population:
                 best = self.best()
                 children = [best]
                 while len(children) < self._n:
-                    children.append(best.mutate())
+                    children.append(best.mutate(0.4))
 
         # collect all individuals of current iteration and
         # evaluate them

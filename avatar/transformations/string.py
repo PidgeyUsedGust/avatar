@@ -72,7 +72,7 @@ class SplitAlign(StringTransformation):
     max_categories = 30
 
     def __init__(self, delimiter: str):
-        self._delimiter = delimiter
+        self._delimiter = delimiter.replace("(", "\(").replace(")", "\)")
 
     # def __call__(self, column: pd.Series) -> pd.DataFrame:
     #     df = pd.DataFrame()

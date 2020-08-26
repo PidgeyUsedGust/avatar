@@ -80,23 +80,23 @@ class WranglingLanguage:
     def transformations(
         self,
         df: pd.DataFrame,
-        columns: Optional[List[Label]] = None,
+        exclude: Optional[List[Label]] = None,
         target: Label = None,
     ) -> List[Tuple[str, Transformation]]:
         """Get allowed arguments for wrangling transformation.
         
         Args:
-            columns: Subset of columns.
+            exclude: Subset of columns to exclude.
     
         """
-        if columns is None:
-            columns = df.columns.to_list()
+        if exclude is None:
+            exclude = set()
         if target is not None:
-            columns.remove(target)
+            exclude.add(target)
         transformations = list()
         for transformation in self._transformations:
             for i, column in df.iteritems():
-                if i in columns and column.dtype.name in transformation.allowed:
+                if i not in exclude and column.dtype.name in transformation.allowed:
                     arguments = transformation.arguments(column)
                     for argument in arguments:
                         transformations.append(
@@ -107,17 +107,17 @@ class WranglingLanguage:
     def expand(
         self,
         df: pd.DataFrame,
-        columns: Optional[List[Label]] = None,
+        exclude: Optional[List[Label]] = None,
         target: Label = None,
     ) -> pd.DataFrame:
         """Expand dataframe with all transformations.
         
         Args:
-            columns: Subset of columns to consider.
+            exclude: Subset of columns to exclude.
             target: If provided, will skip this column.
 
         """
-        transformations = self.transformations(df, columns=columns, target=target)
+        transformations = self.transformations(df, exclude=exclude, target=target)
         for transformation in transformations:
             df = transformation(df)
         return df

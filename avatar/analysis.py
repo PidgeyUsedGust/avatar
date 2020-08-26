@@ -216,10 +216,10 @@ class FeatureEvaluator:
         """
         
         Args:
+            n_folds: Number of folds.
             n_samples: Number of examples to sample from the dataframe. If
                 an integer, use that many examples. If a float, use that
-                percentage of examples. By default, use the whole dataset.
-            folds: Number of folds. In each fold, we take `n_samples` 
+                percentage of examples. By default, use the whole dataset. 
             method: Method to use for computing feature relevances from
                 decision trees. Can be `shap` (default) or `None`.
         
@@ -336,7 +336,7 @@ class FeatureEvaluator:
 
         # hide mask
         output = m_code == 1
-        m_code[:, mask] = -1
+        m_code[:, ~mask] = -1
         m_code[output] = 1
 
         return m_code
@@ -442,6 +442,15 @@ class DatasetEvaluator:
         """
         for train, test in KFold(n_splits=self._n_folds).split(self._data):
             yield self._data[train], self._data[test]
+
+    def _metadata(self):
+        """Return metadata."""
+        attributes = set(range(len(self._columns)))
+        return dict(
+            n_attributes=len(attributes),
+            nominal_attributes=self._nominal,
+            numeric_attributes=attributes - self._nominal,
+        )
 
 
 class ColumnSampler:
