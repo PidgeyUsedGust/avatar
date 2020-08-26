@@ -62,14 +62,6 @@ class WranglingTransformation:
         return "{}({})".format(self._transformation, self._column)
 
 
-class WranglingFilter:
-    """Wrangling filter."""
-
-    def __init__(self, column, filter_: Filter):
-        self._column = column
-        self._filter = filter_
-
-
 class WranglingLanguage:
     """Wrangling language."""
 

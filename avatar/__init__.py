@@ -1,9 +1,12 @@
 import pandas as pd
-from typing import List
-from .language import WranglingTransformation, WranglingProgram
+from pandas._typing import Label
+from typing import List, Type
+from .language import WranglingTransformation, WranglingProgram, WranglingLanguage
+from .selection import Filter, Selector
+from .analysis import FeatureEvaluator, DatasetEvaluator
 
 
-def bend(df: pd.DataFrame, target: int = -1, model=None) -> pd.DataFrame:
+def bend(df: pd.DataFrame, target: Label = None) -> pd.DataFrame:
     """Automatically wrangle dataframe.
     
     Args:
@@ -13,8 +16,22 @@ def bend(df: pd.DataFrame, target: int = -1, model=None) -> pd.DataFrame:
             MERCS is used.
 
     """
-
     queue = list()
+
+
+def bend_custom(
+    df: pd.DataFrame,
+    target: Label,
+    language: WranglingLanguage,
+    pruning: Filter,
+    preselecion: Filter,
+    featureselection: Selector,
+    featureevaluator: FeatureEvaluator,
+    evaluator: DatasetEvaluator,
+) -> pd.DataFrame:
+    """Customizable data bending."""
+
+    pass
 
 
 def available_models() -> List[str]:

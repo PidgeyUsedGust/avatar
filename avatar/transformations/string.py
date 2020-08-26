@@ -21,7 +21,7 @@ class Split(StringTransformation):
     """Split column by delimiter."""
 
     def __init__(self, delimiter: str):
-        self._delimiter = delimiter
+        self._delimiter = re.escape(delimiter)
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
         return column.str.split(pat=self._delimiter, expand=True)

@@ -2,24 +2,34 @@
 
 Two types of selection are performed.
 
- * Preselectors will use intrinsic properties of a single column
+ * Filters will use intrinsic properties of a single column
    in order to quickly remove columns for consideration.
 
 """
 import random
 import numpy as np
 import pandas as pd
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from typing import Union, Optional, Set, Tuple, List, Callable, Dict
 from pandas._typing import Label
 from pandas.api.types import is_numeric_dtype  # , is_string_type
+from sklearn.model_selection import train_test_split
+from sklearn.tree import export_text
 from mercs.core import Mercs
 from .utilities import to_mercs, to_m_codes
 from .analysis import FeatureEvaluator
 
 
-class StackedPreselector:
-    """Combine differenct selectors."""
+class Filter(ABC):
+    """Generic filter."""
+
+    @abstractmethod
+    def select(self, df: pd.DataFrame) -> pd.DataFrame:
+        pass
+
+
+class StackedFilter:
+    """Combine differenct filters."""
 
     def __init__(self, selectors):
         self._selectors = selectors
@@ -30,7 +40,7 @@ class StackedPreselector:
         return df
 
 
-class MissingPreselector:
+class MissingFilter:
     """Remove columns missing at least a percentage of values."""
 
     def __init__(self, threshold: float = 0.5):
@@ -40,14 +50,14 @@ class MissingPreselector:
         return df.dropna(axis=1, thresh=(self._threshold * len(df.index)))
 
 
-class ConstantPreselector:
+class ConstantFilter:
     """Remove columns with constants."""
 
     def select(self, df: pd.DataFrame):
         return df.loc[:, (df != df.iloc[0]).any()]
 
 
-class IdenticalPreselector:
+class IdenticalFilter:
     """Remove identical columns.
     
     Remove numerical columns that are identical.
@@ -68,7 +78,7 @@ class IdenticalPreselector:
         return duplicates
 
 
-class BijectivePreselector:
+class BijectiveFilter:
     """Remove categorical columns that are a bijection."""
 
     def select(self, df: pd.DataFrame):
@@ -87,7 +97,7 @@ class BijectivePreselector:
         return duplicates
 
 
-class UniquePreselector:
+class UniqueFilter:
     """Remove columns containing only categorical, unique elements."""
 
     def select(self, df: pd.DataFrame):
@@ -99,7 +109,96 @@ class UniquePreselector:
         return df.drop(uniques, axis=1)
 
 
-class IterativePreselector:
+# class IterativeFilter:
+#     """Train decision stump for every feature individually."""
+
+#     def __init__(self, threshold: float = 0.95):
+#         """
+
+#         Args:
+#             threshold: Features that make the same prediction for
+#                 `threshold` percentage of rows are discarded.
+
+#         """
+#         self.threshold = threshold
+
+#     def predictions(self, df: pd.DataFrame, target: Label = None) -> pd.DataFrame:
+#         """Make predictions.
+
+#         Returns:
+#             Dataframe with same shape as `df` containing predictions for
+#             every feature.
+
+#         """
+
+#         # prepare data for mercs
+#         data, nominal = to_mercs(df)
+#         data = data.values
+#         # data_test = np.nan_to_num(data)
+
+#         if target:
+#             target_df = df[[target]]
+#             target_size = target_df[target].value_counts()[-1]
+#         else:
+#             target_column = None
+#             target_size = 0.5
+
+#         train, test = train_test_split(data, test_size=target_size, stratify=target_df)
+#         test = np.nan_to_num(test)
+
+#         # initialise mask
+#         base_m_code = to_m_codes(df.columns, target)
+#         base_m_code[base_m_code == 0] = -1
+
+#         # perform predictions
+#         predictions = pd.DataFrame(columns=df.columns)
+#         for i, column in enumerate(df.columns):
+#             if column == target:
+#                 continue
+#             m_code = np.copy(base_m_code)
+#             m_code[:, i] = 0
+#             model = Mercs(classifier_algorithm="DT", max_depth=1)
+#             model.fit(train, nominal_attributes=nominal, m_codes=m_code)
+#             # print(column)
+#             # print(export_text(model.m_list[0].model))
+#             predictions[column] = model.predict(test, q_code=m_code[0])
+#         return predictions
+
+#     def select(self, df: pd.DataFrame, target) -> pd.DataFrame:
+#         """Perform selection.
+
+#         Returns:
+#             A dataframe containing only selected features.
+
+#         """
+
+#         # get predictions
+#         predictions = self.predictions(df, target)
+
+#         # get columns similar to another columns
+#         similar = set()
+#         for i, ci in enumerate(predictions.columns):
+#             if ci in similar:
+#                 break
+#             column = predictions[ci]
+#             column_type = is_numeric_dtype(df[ci])
+#             for cj in predictions.columns[i + 1 :]:
+#                 if cj in similar:
+#                     break
+#                 other = predictions[cj]
+#                 other_type = is_numeric_dtype(df[cj])
+#                 if (column_type and other_type) or (not column_type and not other_type):
+#                     # print(ci, cj, np.count_nonzero(column != other))
+#                     d = np.count_nonzero(column != other) / len(column)
+#                     if d > self.threshold:
+#                         print("{} is too similar to {}".format(cj, ci))
+#                         similar.add(cj)
+
+#         # similar ones and return
+#         return df.drop(similar, axis=1)
+
+
+class IterativeFilter:
     """Train decision stump for every feature individually."""
 
     def __init__(self, threshold: float = 0.95):
@@ -110,9 +209,9 @@ class IterativePreselector:
                 `threshold` percentage of rows are discarded.
 
         """
-        self.threshold = 1 - threshold
+        self.threshold = threshold
 
-    def predictions(self, df: pd.DataFrame, target) -> pd.DataFrame:
+    def predictions(self, df: pd.DataFrame, target: Label = None) -> pd.DataFrame:
         """Make predictions.
         
         Returns:
@@ -120,27 +219,35 @@ class IterativePreselector:
             every feature.
             
         """
-
         # prepare data for mercs
         data, nominal = to_mercs(df)
         data = data.values
-        data_test = np.nan_to_num(data)
-
-        # initialise mask
-        base_m_code = to_m_codes(df.columns, target)
-        base_m_code[base_m_code == 0] = -1
-
+        # compute stratification target and size
+        if target:
+            target_df = df[[target]]
+            target_size = target_df[target].value_counts()[-1]
+        else:
+            target_df = None
+            target_size = 0.5
+        # make train/test split
+        train, test = train_test_split(data, test_size=target_size, stratify=target_df)
+        test = np.nan_to_num(test)
+        # mask
+        m_code = np.array([[0, 1]])
+        # target index
+        target_i = df.columns.get_loc(target)
         # perform predictions
-        predictions = pd.DataFrame(0, index=df.index, columns=df.columns)
+        predictions = pd.DataFrame()
         for i, column in enumerate(df.columns):
             if column == target:
                 continue
-            m_code = np.copy(base_m_code)
-            m_code[:, i] = 0
-            model = Mercs(classifier_algorithm="DT", max_depth=1)
-            model.fit(data, nominal_attributes=nominal, m_codes=m_code)
-            predictions[column] = model.predict(data_test, q_code=m_code[0])
-
+            model = Mercs(classifier_algorithm="DT", max_depth=4, min_samples_leaf=10)
+            model.fit(
+                train[:, [i, target_i]], nominal_attributes=nominal, m_codes=m_code
+            )
+            predictions[column] = model.predict(
+                test[:, [i, target_i]], q_code=m_code[0]
+            )
         return predictions
 
     def select(self, df: pd.DataFrame, target) -> pd.DataFrame:
@@ -150,10 +257,9 @@ class IterativePreselector:
             A dataframe containing only selected features.
     
         """
-
         # get predictions
         predictions = self.predictions(df, target)
-
+        predictions = predictions.loc[:, predictions.apply(pd.Series.nunique) != 1]
         # get columns similar to another columns
         similar = set()
         for i, ci in enumerate(predictions.columns):
@@ -167,10 +273,9 @@ class IterativePreselector:
                 other = predictions[cj]
                 other_type = is_numeric_dtype(df[cj])
                 if (column_type and other_type) or (not column_type and not other_type):
-                    d = np.abs(column - other).sum() / len(column)
-                    if d < self.threshold:
+                    d = np.count_nonzero(column == other) / len(column)
+                    if d > self.threshold:
                         similar.add(cj)
-
         # similar ones and return
         return df.drop(similar, axis=1)
 
@@ -178,51 +283,73 @@ class IterativePreselector:
 class Selector:
     """Base feature selector."""
 
-    def __init__(self, df: pd.DataFrame, target: Optional[Label] = None):
-        self._df = df
-        self._target = target
-        self._evaluator = FeatureEvaluator(df, target, method=None, max_depth=2)
+    def __init__(self, evaluator: FeatureEvaluator = None):
+        """
+
+        Args:
+            iterations: Number of iterations.
+
+        """
+        if evaluator is None:
+            evaluator = FeatureEvaluator(method=None, n_folds=2, max_depth=4)
+        self._evaluator = evaluator
         # the following attributes are to be filled by the
         # selector implementations
         self._fimps = None
         self._scores = None
 
+    def fit(self, df: pd.DataFrame, target: Optional[Label] = None):
+        self._df = df
+        self._target = target
+        self._evaluator.fit(df, target)
+        self.run()
+
     @abstractmethod
     def run(self):
-        """Rank features."""
+        """Rank features.
+        
+        This method should fill `self._fimps` and `self._scores`
+        with a matrix of feature importances and the associated
+        score of those models on some other data.
+
+        """
         pass
 
     def scores(self) -> Dict[Label, float]:
         """Get scores."""
         scores = self._fimps * self._scores.reshape((-1, 1))
         scores = scores.sum(axis=0) / scores.sum()
+        return scores
 
     def ordered(self) -> List[Label]:
-        return self._df.columns[np.argsort(self._importances)[::-1]]
+        return self._df.columns[np.argsort(self.scores())[::-1]]
 
     def select(self, n: int) -> List[Label]:
-        return self._df.columns[self.ordered()[:n]]
+        return self.ordered()[:n]
 
     def __str__(self) -> str:
         s = ""
-        for i in np.argsort(self._importances)[::-1]:
-            s += "{}  {}\n".format(self._df.columns[i], self._importances[i])
+        for i in np.argsort(self._fimps)[::-1]:
+            s += "{}  {}\n".format(self._df.columns[i], self._fimps[i])
         return s
 
 
 class SamplingSelector(Selector):
     """Randomly sample sets of features and obtain feature relevances."""
 
-    def __init__(self, df: pd.DataFrame, target: Label):
-        super().__init__(df, target)
-        self._rng = np.random.RandomState(1336)
+    def __init__(
+        self, evaluator: Optional[FeatureEvaluator] = None, iterations: int = 100
+    ):
+        super().__init__(evaluator)
+        self._iterations = iterations
+        self._rng = np.random.RandomState(1337)
 
-    def run(self, iterations: int = 20):
+    def run(self):
         """Generate random sets of features and evaluate them."""
-        self._fimps = np.zeros((iterations, len(self._df.columns)))
-        self._scores = np.zeros(iterations)
+        self._fimps = np.zeros((self._iterations, len(self._df.columns)))
+        self._scores = np.zeros(self._iterations)
         counts = np.zeros(len(self._df.columns))
-        for i in range(iterations):
+        for i in range(self._iterations):
             mask = self.generate_mask()
             self._scores[i], self._fimps[i] = self._evaluator.evaluate(mask)
             counts = counts + mask
@@ -237,29 +364,37 @@ class SamplingSelector(Selector):
 class SFFSelector(Selector):
     """Sequential Forward Floating Selection."""
 
-    def __init__(self, df: pd.DataFrame, target: Label):
-        super().__init__(df, target)
-        # initialise the mask to exclude everything
-        self._mask = to_m_codes(df.columns, target=target)[0]
-        self._mask[self._mask == 0] = -1
-        # mappings of number of features to best set found
-        # with that number
+    def __init__(
+        self, iterations: int = 50, evaluator: Optional[FeatureEvaluator] = None
+    ):
+        super().__init__(evaluator)
+        self._iterations = iterations
+        self._mask = None
         self._best = {}
-        self._best_score = np.zeros(len(df.columns))
-        self._best_fimps = np.zeros((len(df.columns), len(df.columns)))
 
-    def run(self, iterations=50):
+    def run(self):
         """Perform SFFS."""
+
+        # reset mask
+        self._mask = to_m_codes(self._df.columns, target=self._target)[0]
+        self._mask[self._mask == 0] = -1
+
+        print(self._mask)
+
+        best_score = np.zeros(len(self._df.columns))
+        best_fimps = np.zeros((len(self._df.columns), len(self._df.columns)))
+
         k = 0
-        for _ in range(iterations):
+        for _ in range(self._iterations):
             # forward step (SFS)
             best, (score, fimps) = self.forward()
             self.add(best)
+            print("Adding", self._df.columns[best])
             k += 1
             if k not in self._best:
                 self._best[k] = self.mask()
-                self._best_score[k] = score
-                self._best_fimps[k] = fimps
+                best_score[k] = score
+                best_fimps[k] = fimps
             # don't perform backward if only one feature to remove
             if k < 2:
                 continue
@@ -268,18 +403,18 @@ class SFFSelector(Selector):
                 # backward step (SBS)
                 best, (score, fimps) = self.backward()
                 # best (k - 1) subset so far
-                if score > self._best_score[k - 1]:
+                if score > best_score[k - 1]:
                     self.remove(best)
                     self._best[k - 1] = self.mask()
-                    self._best_score[k - 1] = score
-                    self._best_fimps[k - 1] = fimps
+                    best_score[k - 1] = score
+                    best_fimps[k - 1] = fimps
                     k -= 1
                 # back to start of algorithm
                 else:
                     break
         # count number of non-zero k rows
-        self._fimps = self._best_fimps
-        self._scores = self._best_score
+        self._fimps = best_fimps
+        self._scores = best_score
 
     def forward(self) -> Tuple[int, Tuple[float, np.ndarray]]:
         """Perform forward step."""
@@ -316,20 +451,21 @@ class CHCGASelector(Selector):
 
     def __init__(
         self,
-        df: pd.DataFrame,
-        target: Optional[Label] = None,
         population_size: int = 40,
+        iterations: int = 50,
+        evaluator: Optional[FeatureEvaluator] = None,
     ):
-        super().__init__(df, target)
+        super().__init__(evaluator)
         self._population_size = population_size
+        self._iterations = iterations
 
-    def run(self, iterations: int = 20):
+    def run(self):
         # generate population
         population = Population.generate_for(
             self._df, n=self._population_size, fitness=self._evaluator.accuracy
         )
         # evolve `iterations` times
-        for _ in range(iterations):
+        for _ in range(self._iterations):
             population.evolve()
         # get importances
         importances = np.zeros((self._population_size, len(self._df.columns)))
@@ -338,8 +474,9 @@ class CHCGASelector(Selector):
             importances[i] = self._evaluator.importances(individual.genome)
             scores[i] = population.fitness(individual)
         # aggregate
-        self._importances = (importances * scores.reshape((-1, 1))).mean(axis=0)
-        self._importances = self._importances / self._importances.sum()
+        self._fimps = (importances * scores.reshape((-1, 1))).mean(axis=0)
+        self._fimps = self._fimps / self._fimps.sum()
+        self._scores = scores
 
 
 class Population:
