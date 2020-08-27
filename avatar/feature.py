@@ -1,2 +1,0 @@
-"""Different feature selection strategies."""
-

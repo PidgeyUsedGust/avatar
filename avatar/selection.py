@@ -20,7 +20,6 @@ from .utilities import to_mercs, to_m_codes
 from .analysis import FeatureEvaluator
 
 
-
 class Selector:
     """Base feature selector."""
 
@@ -279,7 +278,12 @@ class SFFSelector(Selector):
 
 
 class CHCGASelector(Selector):
-    """Selector using GA."""
+    """Selector using GA.
+    
+    When warm started, the population is initialised to the 
+    starting genome and we begin with a cataclysmic mutation.
+
+    """
 
     def __init__(
         self,
@@ -293,25 +297,47 @@ class CHCGASelector(Selector):
 
     def run(self):
         # generate population
-        population = Population.generate_for(
-            self._df, n=self._population_size, fitness=self._evaluator.accuracy
-        )
+        population = self._generate_population()
         # evolve `iterations` times
-        for _ in range(self._iterations):
-            population.evolve()
+        population.evolve_n(self._iterations)
         # get importances
         importances = np.zeros((self._population_size, len(self._df.columns)))
         scores = np.zeros(self._population_size)
-        for i, individual in enumerate(population.individuals):
+        for i, individual in enumerate(population.individuals()):
             importances[i] = self._evaluator.importances(individual.genome)
             scores[i] = population.fitness(individual)
-        # aggregate
-        self._fimps = (importances * scores.reshape((-1, 1))).mean(axis=0)
-        self._fimps = self._fimps / self._fimps.sum()
+        # store
+        self._fimps = importances
         self._scores = scores
+
+        print(population)
+
+    def select(self) -> List[Label]:
+        """Select best individual."""
+        best = np.argwhere(self._scores == np.max(self._scores))
+        best = np.argmin((self._fimps[best] > 0).sum(axis=2))
+        select = np.argwhere(self._fimps[best] > 0).flatten()
+        return [self._df.columns[c] for c in select]
+
+    def _generate_population(self) -> "Population":
+        """Generate population."""
+        n = self._population_size
+        s = len(self._df.columns)
+
+        # start values provided
+        if len(self._start) > 0:
+            individuals = [Individual(self._start_mask()) for _ in range(n)]
+
+        # nothing provided, start from scratch
+        else:
+            individuals = [Individual.generate(s) for _ in range(n)]
+
+        return Population(individuals, fitness=self._evaluator.accuracy)
 
 
 class Population:
+    """Population of individuals."""
+
     def __init__(
         self, population: List["Individual"], fitness: Callable[["Individual"], float]
     ):
@@ -327,7 +353,8 @@ class Population:
         }
         self._n = len(self._population)
         self._fitness = fitness
-        self._threshold = len(population[0]) // 4
+        self._threshold_base = len(population[0]) // 4
+        self._threshold = self._threshold_base
 
     def evolve(self):
         """Evolve to next generation.
@@ -355,11 +382,14 @@ class Population:
             self._threshold = self._threshold - 1
 
             # threshold drops to 0, perform cataclysmic mutation
-            if self._threshold == 0:
+            if self._threshold == 0 or self._has_stagnated():
+                print("Mutation time!")
                 best = self.best()
                 children = [best]
                 while len(children) < self._n:
                     children.append(best.mutate(0.4))
+                # reset the threshold
+                self._threshold = self._threshold_base
 
         # collect all individuals of current iteration and
         # evaluate them
@@ -373,29 +403,32 @@ class Population:
         # replace current population
         self._population = {elite: combined[elite] for elite in elites}
 
-    def evaluate(self, individual: "Individual") -> Dict["Individual", float]:
-        return {individual: evaluator(individual) for individual in self._population}
+    def evolve_n(self, n: int):
+        """Evolve `n` times."""
+        for _ in range(n):
+            self.evolve()
+
+    def fitness(self, individual: "Individual"):
+        return self._population[individual]
 
     def best(self) -> "Individual":
         return max(self._population, key=self._population.get)
 
-    def average(self) -> float:
-        return np.mean(list(self._population.values()))
+    def individuals(self) -> List["Individual"]:
+        return list(self._population)
 
-    def fitness(self, individual: "Individual") -> float:
-        return self._population[individual]
-
-    @property
-    def individuals(self):
-        return self._population
+    def _has_stagnated(self) -> bool:
+        """Check if all elements are equal."""
+        iterator = iter(self._population)
+        try:
+            first = next(iterator)
+        except StopIteration:
+            return True
+        return all(np.equal(first.genome, rest.genome).all() for rest in iterator)
 
     @property
     def n(self):
         return self._n
-
-    @classmethod
-    def generate_for(self, df: pd.DataFrame, n: int, fitness) -> "Population":
-        return Population([Individual.generate_for(df) for _ in range(n)], fitness)
 
     def __str__(self):
         return "\n".join("{} {}".format(i, s) for i, s in self._population.items())
@@ -461,10 +494,8 @@ class Individual:
         """Generate random genome."""
         return Individual(np.random.randint(2, size=n))
 
-    @classmethod
-    def generate_for(cls, df: pd.DataFrame) -> "Individual":
-        """Generate for a dataframe."""
-        return cls.generate(df.shape[1])
+    def __eq__(self, other: "Individual"):
+        return id(self) == id(other)
 
     def __len__(self):
         return len(self._genome)
@@ -473,4 +504,4 @@ class Individual:
         return str(self._genome)
 
     def __hash__(self):
-        return hash(self._genome.tobytes())
+        return hash(id(self))
