@@ -302,17 +302,33 @@ class Selector:
             iterations: Number of iterations.
 
         """
+
         if evaluator is None:
-            evaluator = FeatureEvaluator(method=None, n_folds=2, max_depth=4)
+            evaluator = FeatureEvaluator(method=None, n_folds=4, max_depth=4)
         self._evaluator = evaluator
+
         # the following attributes are to be filled by the
         # selector implementations
         self._fimps = None
         self._scores = None
 
-    def fit(self, df: pd.DataFrame, target: Optional[Label] = None):
+    def fit(
+        self,
+        df: pd.DataFrame,
+        target: Optional[Label] = None,
+        start: Optional[List[Label]] = None,
+    ):
+        """Fit selector.
+
+        Args:
+            start: Initial list of features to include. By default, don't
+                include any features.
+
+        """
         self._df = df
         self._target = target
+        self._target_i = df.columns.get_loc(target)
+        self._start = start if start is not None else list()
         self._evaluator.fit(df, target)
         self.run()
 
@@ -327,17 +343,36 @@ class Selector:
         """
         pass
 
-    def scores(self) -> Dict[Label, float]:
-        """Get scores."""
+    @abstractmethod
+    def select(self) -> List[Label]:
+        """Select features.
+        
+        Automatically select the optimal number of features according
+        to this model.
+    
+        """
+        pass
+
+    def scores(self) -> np.ndarray:
+        """Get feature scores."""
         scores = self._fimps * self._scores.reshape((-1, 1))
         scores = scores.sum(axis=0) / scores.sum()
         return scores
 
-    def ordered(self) -> List[Label]:
+    def ranked(self) -> List[Label]:
+        """Rank all features."""
         return self._df.columns[np.argsort(self.scores())[::-1]]
 
-    def select(self, n: int) -> List[Label]:
+    def best(self, n: int) -> List[Label]:
+        """Select best `n` features."""
         return self.ordered()[:n]
+
+    def _start_mask(self) -> np.ndarray:
+        """Generate mask with starting features."""
+        mask = np.zeros(len(self._df.columns))
+        mask[[self._df.columns.get_loc(c) for c in self._start]] = 1
+        # mask[self._df.columns.get_loc(self._target)] = 1
+        return mask
 
     def __str__(self) -> str:
         s = ""
@@ -347,33 +382,83 @@ class Selector:
 
 
 class SamplingSelector(Selector):
-    """Randomly sample sets of features and obtain feature relevances."""
+    """Randomly sample sets of features.
+    
+    This selector ignores the start, but a variation of random
+    sampling with warm start is implemented in `WarmSamplingSelector`.
+
+    """
 
     def __init__(
-        self, evaluator: Optional[FeatureEvaluator] = None, iterations: int = 100
+        self,
+        iterations: int = 100,
+        explain: float = 0.9,
+        evaluator: Optional[FeatureEvaluator] = None,
     ):
+        """
+        
+        Args:
+            iterations: Number of iterations to run for.
+            explain: Percentage of model to explain for automatic
+                number of feature selection.
+
+        """
         super().__init__(evaluator)
         self._iterations = iterations
+        self._explain = explain
         self._rng = np.random.RandomState(1337)
 
     def run(self):
         """Generate random sets of features and evaluate them."""
-        self._fimps = np.zeros((self._iterations, len(self._df.columns)))
-        self._scores = np.zeros(self._iterations)
-        counts = np.zeros(len(self._df.columns))
-        for i in range(self._iterations):
-            mask = self.generate_mask()
-            self._scores[i], self._fimps[i] = self._evaluator.evaluate(mask)
-            counts = counts + mask
-        # scale with counts and re-normalise
-        self._fimps = self._fimps / counts
-        self._fimps = self._fimps / self._fimps.sum(axis=1).reshape((-1, 1))
 
-    def generate_mask(self) -> np.ndarray:
+        # initialise
+        scores = np.zeros(self._iterations)
+        fimps = np.zeros((self._iterations, len(self._df.columns)))
+        masks = np.zeros((self._iterations, len(self._df.columns)))
+
+        # run sampling
+        for i in range(self._iterations):
+            mask = self._generate_mask()
+            masks[i] = mask
+            scores[i], fimps[i] = self._evaluator.evaluate(mask)
+
+        # scale with counts and re-normalise
+        # print(masks.sum(axis=0))
+        fimps = fimps / masks.sum(axis=0)
+        fimps = fimps / fimps.sum(axis=1).reshape((-1, 1))
+
+        self._fimps = fimps
+        self._scores = scores
+
+    def select(self) -> List[Label]:
+        """Select features until the model is sufficiently explained."""
+        scores = self.scores()
+        ranked = np.argsort(scores).tolist()
+        select = list()
+        while np.sum(scores[select]) < self._explain:
+            select.append(ranked.pop())
+        return self._df.columns[select]
+
+    def _generate_mask(self) -> np.ndarray:
         while True:
             mask = self._rng.randint(2, size=len(self._df.columns))
             if mask.sum() > 1:
                 return mask
+
+
+class WarmSamplingSelector(SamplingSelector):
+    """Sampling selector with hot start.
+    
+    Starts with the base mask and swaps every bit with a
+    predefined probability.
+
+    """
+
+    def _generate_mask(self) -> np.ndarray:
+        mask = self._rng.random(size=len(self._df.columns)) < (1 / 3)
+        base = self._start_mask()
+        base[mask] = 1 - base[mask]
+        return base
 
 
 class SFFSelector(Selector):
@@ -390,34 +475,34 @@ class SFFSelector(Selector):
     def run(self):
         """Perform SFFS."""
 
-        # reset mask
-        self._mask = to_m_codes(self._df.columns, target=self._target)[0]
-        self._mask[self._mask == 0] = -1
-
         best_score = np.zeros(len(self._df.columns))
         best_fimps = np.zeros((len(self._df.columns), len(self._df.columns)))
 
-        k = 0
+        # reset mask
+        self._mask = self._start_mask()
+        k = int(self._mask.sum())
+
         for _ in range(self._iterations):
+
             # forward step (SFS)
             best, (score, fimps) = self.forward()
             self.add(best)
+            # print("Adding", self._df.columns[best])
             k += 1
             if k not in self._best:
-                self._best[k] = self.mask()
+                self._best[k] = (self.mask(), score)
                 best_score[k] = score
                 best_fimps[k] = fimps
-            # don't perform backward if only one feature to remove
-            if k < 2:
-                continue
+
             # start conditional exclusion
-            while True:
+            while k > 1:
                 # backward step (SBS)
                 best, (score, fimps) = self.backward()
                 # best (k - 1) subset so far
                 if score > best_score[k - 1]:
                     self.remove(best)
-                    self._best[k - 1] = self.mask()
+                    # print("Removing", self._df.columns[best])
+                    self._best[k - 1] = (self.mask(), score)
                     best_score[k - 1] = score
                     best_fimps[k - 1] = fimps
                     k -= 1
@@ -428,33 +513,39 @@ class SFFSelector(Selector):
         self._fimps = best_fimps
         self._scores = best_score
 
+    def select(self) -> List[Label]:
+        select_from = [(score, k, mask) for k, (mask, score) in self._best.items()]
+        select_from = sorted(select_from, key=lambda x: (-x[0], x[1]))
+        select = select_from[0][2].astype(bool)
+        return self._df.columns[select]
+
     def forward(self) -> Tuple[int, Tuple[float, np.ndarray]]:
         """Perform forward step."""
-        (to_add,) = np.where(self._mask == -1)
+        to_add = set(np.where(self._mask == 0)[0]) - {self._target_i}
         scores = {f: self._evaluator.evaluate(self.mask(add=f)) for f in to_add}
         best = max(scores, key=lambda s: scores[s][0])
         return best, scores[best]
 
     def backward(self) -> Tuple[int, Tuple[float, np.ndarray]]:
         """Perform backward step."""
-        (to_remove,) = np.where(self._mask == 0)
+        to_remove = set(np.where(self._mask == 1)[0]) - {self._target_i}
         scores = {f: self._evaluator.evaluate(self.mask(remove=f)) for f in to_remove}
         best = max(scores, key=lambda s: scores[s][0])
         return best, scores[best]
 
-    def add(self, feature):
-        self._mask[feature] = 0
+    def add(self, feature: int):
+        self._mask[feature] = 1
 
-    def remove(self, feature):
-        self._mask[feature] = -1
+    def remove(self, feature: int):
+        self._mask[feature] = 0
 
     def mask(self, add=None, remove=None):
         """Get mask with one update."""
         mask = np.copy(self._mask)
         if add is not None:
-            mask[add] = 0
+            mask[add] = 1
         if remove is not None:
-            mask[remove] = -1
+            mask[remove] = 0
         return mask
 
 

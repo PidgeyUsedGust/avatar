@@ -210,7 +210,6 @@ class FeatureEvaluator:
         n_folds: int = 5,
         n_samples: Union[int, float] = 1.0,
         test_size: Union[int, float] = 0.2,
-        method: Optional[str] = None,
         **configuration
     ):
         """
@@ -231,7 +230,7 @@ class FeatureEvaluator:
         self._n_samples = n_samples
         self._test_size = test_size
         # settings for training
-        self._m_args = dict(calculation_method_feature_importances=method)
+        self._m_args = dict()
         self._m_args.update(configuration)
         # cache for model
         self._cache = dict()
@@ -285,6 +284,7 @@ class FeatureEvaluator:
         importances = np.zeros((len(self._folds), len(self._columns)))
         for i, model in enumerate(self.models(mask)):
             importances[i] = np.sum(model.m_fimps, axis=0)
+            # importances[i] = np.sum(model.nrm_shaps, axis=0)
         return np.mean(importances, axis=0)
 
     def evaluate(self, mask: np.ndarray):
@@ -314,10 +314,9 @@ class FeatureEvaluator:
             for (train, _) in self._folds:
                 model = Mercs(**self._m_args)
                 model.fit(train, nominal_attributes=self._nominal, m_codes=code)
+                # compute SHAP values
+                # model.avatar(train, keep_abs_shap=True, check_additivity=False)
                 self._cache[key].append(model)
-            # print(mask)
-            # print([self._columns[i] for i, v in enumerate(mask) if v == 0])
-            # print(export_text(model.m_list[0].model))
         return self._cache[key]
 
     def _code(self, mask: np.ndarray) -> np.ndarray:

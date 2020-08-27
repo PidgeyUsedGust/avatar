@@ -28,7 +28,7 @@ def bend_custom(
     featureselection: Selector = None,
     # featureevaluator: FeatureEvaluator = None,
     evaluation: DatasetEvaluator = None,
-    n_iterations: int = 4,
+    n_iterations: int = 3,
 ) -> pd.DataFrame:
     """Customizable data bending."""
 
