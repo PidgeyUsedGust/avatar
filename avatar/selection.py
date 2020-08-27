@@ -72,11 +72,14 @@ class Selector:
         pass
 
     @abstractmethod
-    def select(self) -> List[Label]:
+    def select(self, max_features: int = 0) -> List[Label]:
         """Select features.
         
         Automatically select the optimal number of features according
         to this model.
+
+        Args:
+            max_features: Return at most this many features.
     
         """
         pass
@@ -158,14 +161,16 @@ class SamplingSelector(Selector):
         self._fimps = fimps
         self._scores = scores
 
-    def select(self) -> List[Label]:
+    def select(self, max_features: int = 0) -> List[Label]:
         """Select features until the model is sufficiently explained."""
+        if max_features == 0:
+            max_features = len(self._df.columns)
         scores = self.scores()
         ranked = np.argsort(scores).tolist()
         select = list()
-        while np.sum(scores[select]) < self._explain:
+        while np.sum(scores[select]) < self._explain and len(select) < max_features:
             select.append(ranked.pop())
-        return self._df.columns[select]
+        return self._df.columns[select].tolist()
 
     def _generate_mask(self) -> np.ndarray:
         while True:
@@ -214,42 +219,53 @@ class SFFSelector(Selector):
 
             # forward step (SFS)
             best, (score, fimps) = self.forward()
-            self.add(best)
-            # print("Adding", self._df.columns[best])
-            k += 1
-            if k not in self._best:
-                self._best[k] = (self.mask(), score)
-                best_score[k] = score
-                best_fimps[k] = fimps
+            if best >= 0:
+                self.add(best)
+                k += 1
+                if k not in self._best:
+                    self._best[k] = (self.mask(), score)
+                    best_score[k] = score
+                    best_fimps[k] = fimps
 
             # start conditional exclusion
             while k > 1:
                 # backward step (SBS)
                 best, (score, fimps) = self.backward()
-                # best (k - 1) subset so far
-                if score > best_score[k - 1]:
-                    self.remove(best)
-                    # print("Removing", self._df.columns[best])
-                    self._best[k - 1] = (self.mask(), score)
-                    best_score[k - 1] = score
-                    best_fimps[k - 1] = fimps
-                    k -= 1
-                # back to start of algorithm
-                else:
-                    break
+                if best >= 0:
+                    # best (k - 1) subset so far
+                    if score > best_score[k - 1]:
+                        self.remove(best)
+                        self._best[k - 1] = (self.mask(), score)
+                        best_score[k - 1] = score
+                        best_fimps[k - 1] = fimps
+                        k -= 1
+                    # back to start of algorithm
+                    else:
+                        break
+
         # count number of non-zero k rows
         self._fimps = best_fimps
         self._scores = best_score
 
-    def select(self) -> List[Label]:
-        select_from = [(score, k, mask) for k, (mask, score) in self._best.items()]
-        select_from = sorted(select_from, key=lambda x: (-x[0], x[1]))
-        select = select_from[0][2].astype(bool)
-        return self._df.columns[select]
+    def select(self, max_features: int = 0) -> List[Label]:
+        if max_features == 0:
+            max_features = len(self._df.columns)
+        score, k, mask = max(
+            [
+                (score, k, mask)
+                for k, (mask, score) in self._best.items()
+                if k <= max_features
+            ],
+            key=lambda x: (x[0], -x[1]),
+        )
+        actual = np.where(self._fimps[k] > 0)[0]
+        return self._df.columns[actual].tolist()
 
     def forward(self) -> Tuple[int, Tuple[float, np.ndarray]]:
         """Perform forward step."""
         to_add = set(np.where(self._mask == 0)[0]) - {self._target_i}
+        if len(to_add) == 0:
+            return -1, (0, np.array([]))
         scores = {f: self._evaluator.evaluate(self.mask(add=f)) for f in to_add}
         best = max(scores, key=lambda s: scores[s][0])
         return best, scores[best]
@@ -257,6 +273,8 @@ class SFFSelector(Selector):
     def backward(self) -> Tuple[int, Tuple[float, np.ndarray]]:
         """Perform backward step."""
         to_remove = set(np.where(self._mask == 1)[0]) - {self._target_i}
+        if len(to_remove) == 0:
+            return -1, (0, np.array([]))
         scores = {f: self._evaluator.evaluate(self.mask(remove=f)) for f in to_remove}
         best = max(scores, key=lambda s: scores[s][0])
         return best, scores[best]
@@ -310,10 +328,12 @@ class CHCGASelector(Selector):
         self._fimps = importances
         self._scores = scores
 
-        print(population)
+        # print(population)
 
-    def select(self) -> List[Label]:
+    def select(self, max_features: int = 0) -> List[Label]:
         """Select best individual."""
+        if max_features > 0:
+            return self.ranked()[:max_features]
         best = np.argwhere(self._scores == np.max(self._scores))
         best = np.argmin((self._fimps[best] > 0).sum(axis=2))
         select = np.argwhere(self._fimps[best] > 0).flatten()
@@ -323,15 +343,12 @@ class CHCGASelector(Selector):
         """Generate population."""
         n = self._population_size
         s = len(self._df.columns)
-
         # start values provided
         if len(self._start) > 0:
             individuals = [Individual(self._start_mask()) for _ in range(n)]
-
         # nothing provided, start from scratch
         else:
             individuals = [Individual.generate(s) for _ in range(n)]
-
         return Population(individuals, fitness=self._evaluator.accuracy)
 
 
