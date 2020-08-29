@@ -1,6 +1,7 @@
 from .imputation import *
 from .encoding import *
 from .semantic import *
+from .special import *
 from .string import *
 from .type import *
 
@@ -25,6 +26,8 @@ __all__ = [
     # imputation
     "MeanImputation",
     "ModeImputation",
-    "MedianImputation"
+    "MedianImputation",
+    # special
+    "Drop",
 ]
-"""List of all transformations exported."""
+"""List of all transformations."""

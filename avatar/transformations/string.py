@@ -225,7 +225,7 @@ class ExtractWord(StringTransformation):
         return column.str.extract(self._regex)
 
     def __str__(self) -> str:
-        return "ExtractWord([{}])".format(", ".join(self._words))
+        return "ExtractWord([{}])".format(", ".join(sorted(self._words)))
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[Set[str]]]:

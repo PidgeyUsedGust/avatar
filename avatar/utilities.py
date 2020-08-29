@@ -17,11 +17,7 @@ def get_substrings(string: Sequence) -> List[Sequence]:
 
 
 def count_unique(df: pd.DataFrame) -> int:
-    """Count number of unique values in a dataframe.
-    
-    TODO — Perform analysis of faster alternatives.
-
-    """
+    """Count number of unique values in a dataframe."""
     return pd.unique(df.values.ravel()).size
 
 
@@ -37,6 +33,7 @@ def normalize(s: pd.Series) -> pd.Series:
 
 
 def xor(a: bool, b: bool) -> bool:
+    """Logical XOR."""
     return (a and b) or (not a and not b)
 
 
