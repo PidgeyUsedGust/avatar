@@ -2,7 +2,8 @@ import pandas as pd
 from pandas._typing import Label
 from typing import List, Type, Optional
 from .language import WranglingTransformation, WranglingProgram, WranglingLanguage
-from .selection import Filter, Selector
+from .selection import Selector
+from .filter import Filter
 from .analysis import FeatureEvaluator, DatasetEvaluator
 
 
@@ -29,10 +30,12 @@ def bend_custom(
     # featureevaluator: FeatureEvaluator = None,
     evaluation: DatasetEvaluator = None,
     n_iterations: int = 3,
+    warm_start=True,
 ) -> pd.DataFrame:
     """Customizable data bending."""
 
     n_features = len(df.columns)
+    features_p = list()
     accuracies = list()
     wrangled = set()
 
@@ -50,8 +53,8 @@ def bend_custom(
         print("Preselection; {} left".format(len(select.columns)))
 
         # feature selection
-        featureselection.fit(select, target=target)
-        features = featureselection.select(n_features).tolist()
+        featureselection.fit(select, target=target, start=features_p)
+        features = featureselection.select()
         if target not in features:
             features.append(target)
         print("Best features")
@@ -70,6 +73,10 @@ def bend_custom(
         wrangled_new = set(pruned.columns)
         df = language.expand(pruned, target=target, exclude=wrangled)
         wrangled.update(wrangled_new)
+
+        # if warm starting, remember features used 
+        if warm_start:
+            features_p = features
 
 
 def available_models() -> List[str]:

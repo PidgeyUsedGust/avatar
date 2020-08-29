@@ -12,6 +12,7 @@ sklearn = "*"
 xgboost = "*"
 matplotlib = "*"
 shap = "*"
+tqdm = "*"
 
 [requires]
 python_version = "3.8"

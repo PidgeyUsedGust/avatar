@@ -1,8 +1,10 @@
 """Simple transformation language."""
 import pandas as pd
+import tqdm
 from pandas._typing import Label
 from typing import List, Tuple, Optional
 from .transformations import *
+from .settings import verbose
 
 
 default_transformations = [
@@ -32,7 +34,7 @@ class WranglingTransformation:
 
     def __init__(self, column, transformation: Transformation, replace=False):
         """
-        
+
         Args:
             replace: If set to True, will remove transformed column.
 
@@ -43,7 +45,7 @@ class WranglingTransformation:
 
     def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply transformation to dataframe.
-        
+
         If replacing is True, remove the original column.
 
         """
@@ -84,15 +86,20 @@ class WranglingLanguage:
         target: Label = None,
     ) -> List[Tuple[str, Transformation]]:
         """Get allowed arguments for wrangling transformation.
-        
+
         Args:
             exclude: Subset of columns to exclude.
-    
+
         """
         if exclude is None:
             exclude = set()
         if target is not None:
             exclude.add(target)
+        pbar = tqdm.tqdm(
+            total=len(self._transformations) * len(df.columns),
+            disable=not verbose,
+            desc="Finding  transformations",
+        )
         transformations = list()
         for transformation in self._transformations:
             for i, column in df.iteritems():
@@ -102,6 +109,7 @@ class WranglingLanguage:
                         transformations.append(
                             WranglingTransformation(i, transformation(*argument))
                         )
+                pbar.update()
         return transformations
 
     def expand(
@@ -111,15 +119,21 @@ class WranglingLanguage:
         target: Label = None,
     ) -> pd.DataFrame:
         """Expand dataframe with all transformations.
-        
+
         Args:
             exclude: Subset of columns to exclude.
             target: If provided, will skip this column.
 
         """
         transformations = self.transformations(df, exclude=exclude, target=target)
+        pbar = tqdm.tqdm(
+            total=len(transformations),
+            disable=not verbose,
+            desc="Applying transformations",
+        )
         for transformation in transformations:
             df = transformation(df)
+            pbar.update()
         return df
 
 

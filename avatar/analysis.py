@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Tuple, List, Set, Optional, Union
 from functools import cached_property
 from collections import defaultdict
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.model_selection import KFold
 from sklearn.tree import export_text
 from mercs.core import Mercs
@@ -69,6 +69,7 @@ class FeatureEvaluator:
             self._test_size = int(self._test_size * self._n_samples)
         self._columns = df.columns
         self._target = target
+        self._target_index = df.columns.get_loc(target)
         # get nominal columns, but don't store data
         # as that will be generated in the folds.
         _, nominal = to_mercs(df)
@@ -100,7 +101,7 @@ class FeatureEvaluator:
     def accuracy(self, mask: np.ndarray) -> float:
         """Average accuracy over all folds."""
         accuracies = [
-            accuracy_score(self._truth(code, fold), prediction)
+            self._score(code, fold, prediction)
             for fold, code, prediction in self.predict(mask)
         ]
         return np.mean(accuracies)
@@ -147,24 +148,19 @@ class FeatureEvaluator:
 
     def _code(self, mask: np.ndarray) -> np.ndarray:
         """Generate m_codes for a given feature mask."""
-
         mask = mask.astype(bool)
-
         # no target, use mercs selection algorithm
         if self._target is None:
             m_code = random_selection_algorithm(
                 self._metadata(), nb_targets=1, nb_iterations=1, fraction_missing=0.0
             )
-
         # else make m_code for target
         else:
             m_code = to_m_codes(self._columns, self._target)
-
         # hide mask
         output = m_code == 1
         m_code[:, ~mask] = -1
         m_code[output] = 1
-
         return m_code
 
     def _query(self, code: np.ndarray) -> np.ndarray:
@@ -172,6 +168,21 @@ class FeatureEvaluator:
         code = np.copy(code)
         code[code == -1] = 0
         return code
+
+    def _score(self, code: np.ndarray, fold: int, prediction: np.ndarray) -> float:
+        """Compute score of prediction.
+        
+        For classification, use accuracy.
+        For regression, use mean squared error.
+
+        """
+        truth = self._truth(code, fold)
+        # classification
+        if self._target_index in self._nominal:
+            return accuracy_score(truth, prediction)
+        # or regression
+        else:
+            return mean_squared_error(truth, prediction)
 
     def _truth(self, code: np.ndarray, fold: int) -> np.ndarray:
         """Get truth for m_code."""

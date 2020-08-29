@@ -27,7 +27,8 @@ class Selector:
         """
 
         Args:
-            iterations: Number of iterations.
+            explain: Percentage of feature importance to select. If
+                set to 0, decide automatically.
 
         """
 
@@ -63,7 +64,7 @@ class Selector:
     @abstractmethod
     def run(self):
         """Rank features.
-        
+
         This method should fill `self._fimps` and `self._scores`
         with a matrix of feature importances and the associated
         score of those models on some other data.
@@ -71,18 +72,13 @@ class Selector:
         """
         pass
 
-    @abstractmethod
-    def select(self, max_features: int = 0) -> List[Label]:
-        """Select features.
-        
-        Automatically select the optimal number of features according
-        to this model.
-
-        Args:
-            max_features: Return at most this many features.
-    
-        """
-        pass
+    def select(self, explain: float = 0.9, max_features: int = 0) -> List[Label]:
+        """Select features until the model is sufficiently explained."""
+        scores = self.scores()
+        ranked = np.argsort(scores)[::-1]
+        select = np.searchsorted(np.cumsum(scores[ranked]), explain)
+        select = min(select, max_features or len(self._df.columns))
+        return self._df.columns[ranked[:select]].tolist()
 
     def scores(self) -> np.ndarray:
         """Get feature scores."""
@@ -114,7 +110,7 @@ class Selector:
 
 class SamplingSelector(Selector):
     """Randomly sample sets of features.
-    
+
     This selector ignores the start, but a variation of random
     sampling with warm start is implemented in `WarmSamplingSelector`.
 
@@ -127,7 +123,7 @@ class SamplingSelector(Selector):
         evaluator: Optional[FeatureEvaluator] = None,
     ):
         """
-        
+
         Args:
             iterations: Number of iterations to run for.
             explain: Percentage of model to explain for automatic
@@ -161,17 +157,6 @@ class SamplingSelector(Selector):
         self._fimps = fimps
         self._scores = scores
 
-    def select(self, max_features: int = 0) -> List[Label]:
-        """Select features until the model is sufficiently explained."""
-        if max_features == 0:
-            max_features = len(self._df.columns)
-        scores = self.scores()
-        ranked = np.argsort(scores).tolist()
-        select = list()
-        while np.sum(scores[select]) < self._explain and len(select) < max_features:
-            select.append(ranked.pop())
-        return self._df.columns[select].tolist()
-
     def _generate_mask(self) -> np.ndarray:
         while True:
             mask = self._rng.randint(2, size=len(self._df.columns))
@@ -181,7 +166,7 @@ class SamplingSelector(Selector):
 
 class WarmSamplingSelector(SamplingSelector):
     """Sampling selector with hot start.
-    
+
     Starts with the base mask and swaps every bit with a
     predefined probability.
 
@@ -247,9 +232,8 @@ class SFFSelector(Selector):
         self._fimps = best_fimps
         self._scores = best_score
 
-    def select(self, max_features: int = 0) -> List[Label]:
-        if max_features == 0:
-            max_features = len(self._df.columns)
+    def select(self, explain: float = 0.9, max_features: int = 0) -> List[Label]:
+        max_features = max_features or len(self._df.columns)
         score, k, mask = max(
             [
                 (score, k, mask)
@@ -297,8 +281,8 @@ class SFFSelector(Selector):
 
 class CHCGASelector(Selector):
     """Selector using GA.
-    
-    When warm started, the population is initialised to the 
+
+    When warm started, the population is initialised to the
     starting genome and we begin with a cataclysmic mutation.
 
     """
@@ -307,11 +291,13 @@ class CHCGASelector(Selector):
         self,
         population_size: int = 40,
         iterations: int = 50,
+        explain: float = 0.9,
         evaluator: Optional[FeatureEvaluator] = None,
     ):
         super().__init__(evaluator)
         self._population_size = population_size
         self._iterations = iterations
+        self._explain = explain
 
     def run(self):
         # generate population
@@ -327,17 +313,6 @@ class CHCGASelector(Selector):
         # store
         self._fimps = importances
         self._scores = scores
-
-        # print(population)
-
-    def select(self, max_features: int = 0) -> List[Label]:
-        """Select best individual."""
-        if max_features > 0:
-            return self.ranked()[:max_features]
-        best = np.argwhere(self._scores == np.max(self._scores))
-        best = np.argmin((self._fimps[best] > 0).sum(axis=2))
-        select = np.argwhere(self._fimps[best] > 0).flatten()
-        return [self._df.columns[c] for c in select]
 
     def _generate_population(self) -> "Population":
         """Generate population."""
@@ -359,7 +334,7 @@ class Population:
         self, population: List["Individual"], fitness: Callable[["Individual"], float]
     ):
         """
-        
+
         Args:
             population: Initial population.
             fitness: Fitness function.
@@ -375,10 +350,10 @@ class Population:
 
     def evolve(self):
         """Evolve to next generation.
-        
+
         Args:
             evaluate: Function that evaluates an individual.
-    
+
         """
 
         # sample current population without replacement by shuffling
@@ -400,7 +375,6 @@ class Population:
 
             # threshold drops to 0, perform cataclysmic mutation
             if self._threshold == 0 or self._has_stagnated():
-                print("Mutation time!")
                 best = self.best()
                 children = [best]
                 while len(children) < self._n:
@@ -459,13 +433,13 @@ class Individual:
         self, other: "Individual", threshold: int
     ) -> Optional[Tuple["Individual"]]:
         """Perform Half-Uniform Crossover (HUX).
-    
+
         Crosses half of the non-matching alleles.
 
         Args:
             threshold: Minimal number of different alleles
                 in order to allow crossing two individuals.
-        
+
         Returns:
             If at least threshold alleles are different,
             return a tuple of offspring. Else, return None.
@@ -489,10 +463,10 @@ class Individual:
 
     def mutate(self, p: float) -> "Individual":
         """Mutation.
-        
+
         Args:
             p: Percentage of bits to flip.
-    
+
         """
         assert p < 1
         indices = np.random.choice(
