@@ -1,0 +1,21 @@
+,run,k,k_method,i,max depth,accuracy
+0,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",4,explain 0.8,0,12,0.6884057742305042
+1,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",5,explain 0.85,0,12,0.6885563916842894
+2,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",6,explain 0.9,0,12,0.7199388601870196
+3,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",8,explain 0.95,0,12,0.7210328588211599
+4,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",6,explain 0.8,1,12,0.6846905889237153
+5,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",7,explain 0.85,1,12,0.6714953715948233
+6,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",10,explain 0.9,1,12,0.6311562679091812
+7,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",14,explain 0.95,1,12,0.7380102297925405
+8,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",6,explain 0.8,2,12,0.6862798684851242
+9,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",6,explain 0.85,2,12,0.6862798684851242
+10,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",9,explain 0.9,2,12,0.6945829747498365
+11,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",12,explain 0.95,2,12,0.726543660755443
+12,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",6,explain 0.8,3,12,0.6862798684851242
+13,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",8,explain 0.85,3,12,0.6694598646353528
+14,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",10,explain 0.9,3,12,0.659360948184905
+15,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",13,explain 0.95,3,12,0.6608325745876878
+16,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",5,explain 0.8,4,12,0.686959617399096
+17,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",6,explain 0.85,4,12,0.6862798684851242
+18,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",9,explain 0.9,4,12,0.6668391104263204
+19,"SamplingSelector(iterations=100, evaluator=FeatureEvaluator(folds=8, max_depth=2, sample=1000))",13,explain 0.95,4,12,0.6855925624323348

@@ -1,0 +1,21 @@
+,run,k,k_method,i,max depth,accuracy
+0,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",3,explain 0.8,0,12,0.701713591539885
+1,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",3,explain 0.85,0,12,0.701713591539885
+2,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",4,explain 0.9,0,12,0.7019789029459743
+3,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",6,explain 0.95,0,12,0.7085123509412574
+4,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",9,explain 0.8,1,12,0.7377284609246402
+5,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",12,explain 0.85,1,12,0.7131112987101862
+6,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",17,explain 0.9,1,12,0.730573196743961
+7,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",27,explain 0.95,1,12,0.6878075009901932
+8,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",3,explain 0.8,2,12,0.6737133403752005
+9,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",4,explain 0.85,2,12,0.7407228655514736
+10,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",6,explain 0.9,2,12,0.7428342599785894
+11,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",11,explain 0.95,2,12,0.719242340508383
+12,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",4,explain 0.8,3,12,0.7407228655514736
+13,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",4,explain 0.85,3,12,0.7407228655514736
+14,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",7,explain 0.9,3,12,0.7463596482616021
+15,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",12,explain 0.95,3,12,0.7631611240037708
+16,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",5,explain 0.8,4,12,0.7183909545934914
+17,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",7,explain 0.85,4,12,0.7242553631154527
+18,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",11,explain 0.9,4,12,0.7410238976454692
+19,"CHCGASelector(iterations=50, population=40, evaluator=FeatureEvaluator(folds=4, max_depth=4, sample=500))",18,explain 0.95,4,12,0.6779020283955296
