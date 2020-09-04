@@ -79,6 +79,22 @@ def bend_custom(
             features_p = features
 
 
+# def expand(
+#     df: pd.DataFrame,
+#     target: Label = None,
+#     language: WranglingLanguage = None,
+#     pruning: Filter = None
+#     ) -> pd.DataFrame:
+#     """Perform expansion step.
+    
+#     This includes pruning as those columns will
+#     never be used anymore.
+
+#     """
+    
+#     pass
+
+
 def available_models() -> List[str]:
     """Get available models.
     

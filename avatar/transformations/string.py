@@ -32,7 +32,7 @@ class Split(StringTransformation):
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
         """Get possible delimiters.
-        
+
         Get all substrings of non-alphanumeric characters.
 
         """
@@ -45,26 +45,25 @@ class Split(StringTransformation):
             delimiters = [d for d in delimiters if d]
             for delimiter in delimiters:
                 for substring in get_substrings(delimiter):
-                    # arguments.add(("{}".format(re.escape(substring)),))
                     arguments.add(("{}".format(substring),))
         return arguments
 
 
 class SplitAlign(StringTransformation):
     """Split by delimiter and align by column.
-    
-    For example, a column 
+
+    For example, a column
 
         A,B
         B,
         A,C
-    
+
     gets split into
 
         A B
           B
         A   C
-    
+
     which allows every token to be considered as a feature.
 
     """
@@ -72,14 +71,9 @@ class SplitAlign(StringTransformation):
     max_categories = 30
 
     def __init__(self, delimiter: str):
-        self._delimiter = delimiter.replace("(", "\(").replace(")", "\)")
-
-    # def __call__(self, column: pd.Series) -> pd.DataFrame:
-    #     df = pd.DataFrame()
-    #     for i, values in column.str.split(pat=self._delimiter).iteritems():
-    #         for value in values:
-    #             df.loc[i, value] = value
-    #     return df.fillna("")
+        self._delimiter = (
+            delimiter.replace("(", "\(").replace(")", "\)").replace("+", "\+")
+        )
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
         return column.str.get_dummies(sep=self._delimiter)
@@ -90,7 +84,7 @@ class SplitAlign(StringTransformation):
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
         """Get possible delimiters.
-        
+
         Similar to regular split, but filter on number of unique values.
 
         """
@@ -115,9 +109,9 @@ class SplitAlign(StringTransformation):
         return arguments
 
 
-class ExtractNumberPattern(StringTransformation):
+class ExtractNumber(StringTransformation):
     """Extract a number from text.
-    
+
     Can either extract any number or a fixed pattern.
 
     Regex for extracting numbers was taken from https://stackoverflow.com/a/4703508
@@ -138,7 +132,6 @@ class ExtractNumberPattern(StringTransformation):
         expanded = column.str.extract(pat=self._regex, expand=True)
         expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
         return expanded
-        # return column.str.extract(pat=self._regex, expand=True).astype("float")
 
     def __str__(self) -> str:
         return "ExtractNumber({})".format(self._regex[8:-8])
@@ -169,46 +162,45 @@ class ExtractNumberPattern(StringTransformation):
                 pattern += r"\d{{{}}}".format(len(list(g)))
             else:
                 pattern += re.escape(k)
-        # return "(" + pattern + ")"
         return r"(?:^|\D)(" + pattern + r")(?:\D|$)"
 
 
-class ExtractNumber(StringTransformation):
-    """Exctract first number."""
+# class ExtractNumber(StringTransformation):
+#     """Exctract first number."""
 
-    default = r"([-+]?(?:(?:\d*[,.]\d+)|(?:\d+[.,]?))(?:[Ee][+-]?\d+)?)"
-    table = {ord(value): "0" for value in string.digits}
+#     default = r"([-+]?(?:(?:\d*[,.]\d+)|(?:\d+[.,]?))(?:[Ee][+-]?\d+)?)"
+#     table = {ord(value): "0" for value in string.digits}
 
-    def __call__(self, column: pd.Series) -> pd.DataFrame:
-        expanded = column.str.extract(pat=self.default, expand=True)
-        expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
-        return expanded
+#     def __call__(self, column: pd.Series) -> pd.DataFrame:
+#         expanded = column.str.extract(pat=self.default, expand=True)
+#         expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
+#         return expanded
 
-    def __str__(self) -> str:
-        return "ExtractNumber()"
+#     def __str__(self) -> str:
+#         return "ExtractNumber()"
 
-    @classmethod
-    def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
-        column = column.dropna().map(cls.translate).drop_duplicates()
-        numbers = column.str.extract(pat=cls.default, expand=True).iloc[:, 0]
-        if numbers.notna().any():
-            return [()]
-        return []
+#     @classmethod
+#     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
+#         column = column.dropna().map(cls.translate).drop_duplicates()
+#         numbers = column.str.extract(pat=cls.default, expand=True).iloc[:, 0]
+#         if numbers.notna().any():
+#             return [()]
+#         return []
 
-    @classmethod
-    def translate(cls, string: str) -> str:
-        return string.translate(cls.table)
+#     @classmethod
+#     def translate(cls, string: str) -> str:
+#         return string.translate(cls.table)
 
-    @classmethod
-    def pattern(cls, string: str) -> List[str]:
-        pattern = ""
-        for k, g in itertools.groupby(string):
-            if k == "0":
-                pattern += r"\d{{{}}}".format(len(list(g)))
-            else:
-                pattern += re.escape(k)
-        # return "(" + pattern + ")"
-        return r"(?:^|\D)(" + pattern + r")(?:\D|$)"
+#     @classmethod
+#     def pattern(cls, string: str) -> List[str]:
+#         pattern = ""
+#         for k, g in itertools.groupby(string):
+#             if k == "0":
+#                 pattern += r"\d{{{}}}".format(len(list(g)))
+#             else:
+#                 pattern += re.escape(k)
+#         # return "(" + pattern + ")"
+#         return r"(?:^|\D)(" + pattern + r")(?:\D|$)"
 
 
 class ExtractWord(StringTransformation):
@@ -216,6 +208,7 @@ class ExtractWord(StringTransformation):
 
     beam = 1
     stop = 2
+    max_words = 30
 
     def __init__(self, words: Set[str]):
         self._words = words
@@ -239,12 +232,14 @@ class ExtractWord(StringTransformation):
         # get sets of words, count occurrences and make into sets.
         words = column.str.extractall(pat=r"([a-zA-Z]+)")
         words = words.groupby(level=0)[0].apply(frozenset).to_list()
-        # count = collections.Counter(words[0].value_counts().to_dict())
         count = collections.Counter(list(itertools.chain.from_iterable(words)))
         # queue with counter and words
         queue = [(count, words, set())]
         while len(queue) > 0:
             counter, column, found = queue.pop()
+            # reached max words
+            if len(found) > cls.max_words:
+                continue
             # if counter is empty, add found to result
             if len(counter) == 0:
                 result.append((found,))
@@ -291,7 +286,7 @@ These are possible future transformations that need some work.
 
 class ExtractPattern(StringTransformation):
     """Extract a regex pattern from a string.
-    
+
     Attributes:
         table: Translation table for classes. By default, considers
             lowercase, uppercase, digits and whitespace as character

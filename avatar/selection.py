@@ -20,6 +20,10 @@ from .utilities import to_mercs, to_m_codes
 from .analysis import FeatureEvaluator
 
 
+np.random.seed(1337)
+random.seed(1337)
+
+
 class Selector:
     """Base feature selector."""
 
@@ -118,7 +122,7 @@ class SamplingSelector(Selector):
 
     def __init__(
         self,
-        iterations: int = 100,
+        iterations: Union[int, float] = 100,
         explain: float = 0.9,
         evaluator: Optional[FeatureEvaluator] = None,
     ):
@@ -137,23 +141,22 @@ class SamplingSelector(Selector):
 
     def run(self):
         """Generate random sets of features and evaluate them."""
-
+        if isinstance(self._iterations, float):
+            iterations = int(len(self._df.columns) * self._iterations)
+        else:
+            iterations = self._iterations
         # initialise
-        scores = np.zeros(self._iterations)
-        fimps = np.zeros((self._iterations, len(self._df.columns)))
-        masks = np.zeros((self._iterations, len(self._df.columns)))
-
+        scores = np.zeros(iterations)
+        fimps = np.zeros((iterations, len(self._df.columns)))
+        masks = np.zeros((iterations, len(self._df.columns)))
         # run sampling
-        for i in range(self._iterations):
+        for i in range(iterations):
             mask = self._generate_mask()
             masks[i] = mask
             scores[i], fimps[i] = self._evaluator.evaluate(mask)
-
         # scale with counts and re-normalise
-        # print(masks.sum(axis=0))
         fimps = fimps / masks.sum(axis=0)
         fimps = fimps / fimps.sum(axis=1).reshape((-1, 1))
-
         self._fimps = fimps
         self._scores = scores
 
@@ -162,6 +165,11 @@ class SamplingSelector(Selector):
             mask = self._rng.randint(2, size=len(self._df.columns))
             if mask.sum() > 1:
                 return mask
+
+    def __str__(self) -> str:
+        return "SamplingSelector(iterations={}, evaluator={})".format(
+            self._iterations, self._evaluator
+        )
 
 
 class WarmSamplingSelector(SamplingSelector):
@@ -278,6 +286,11 @@ class SFFSelector(Selector):
             mask[remove] = 0
         return mask
 
+    def __str__(self) -> str:
+        return "SFFSSelector(iterations={}, evaluator={})".format(
+            self._iterations, self._evaluator
+        )
+
 
 class CHCGASelector(Selector):
     """Selector using GA.
@@ -325,6 +338,11 @@ class CHCGASelector(Selector):
         else:
             individuals = [Individual.generate(s) for _ in range(n)]
         return Population(individuals, fitness=self._evaluator.accuracy)
+
+    def __str__(self) -> str:
+        return "CHCGASelector(iterations={}, population={}, evaluator={})".format(
+            self._iterations, self._population_size, self._evaluator
+        )
 
 
 class Population:
@@ -374,7 +392,7 @@ class Population:
             self._threshold = self._threshold - 1
 
             # threshold drops to 0, perform cataclysmic mutation
-            if self._threshold == 0 or self._has_stagnated():
+            if self._threshold == 0 or self.has_stagnated():
                 best = self.best()
                 children = [best]
                 while len(children) < self._n:
@@ -408,7 +426,7 @@ class Population:
     def individuals(self) -> List["Individual"]:
         return list(self._population)
 
-    def _has_stagnated(self) -> bool:
+    def has_stagnated(self) -> bool:
         """Check if all elements are equal."""
         iterator = iter(self._population)
         try:
@@ -459,6 +477,8 @@ class Individual:
         c1[indices] = other.genome[indices]
         c2 = np.copy(other.genome)
         c2[indices] = self.genome[indices]
+        if c1.sum() < 2 or c2.sum() < 2:
+            return None
         return Individual(c1), Individual(c2)
 
     def mutate(self, p: float) -> "Individual":
@@ -469,12 +489,14 @@ class Individual:
 
         """
         assert p < 1
-        indices = np.random.choice(
-            np.arange(len(self.genome)), int(p * len(self.genome)), replace=False
-        )
-        genome = np.copy(self.genome)
-        genome[indices] = 1 - genome[indices]
-        return Individual(genome)
+        while True:
+            indices = np.random.choice(
+                np.arange(len(self.genome)), int(p * len(self.genome)), replace=False
+            )
+            genome = np.copy(self.genome)
+            genome[indices] = 1 - genome[indices]
+            if genome.sum() > 1:
+                return Individual(genome)
 
     @property
     def genome(self):
@@ -482,8 +504,12 @@ class Individual:
 
     @classmethod
     def generate(cls, n: int) -> "Individual":
-        """Generate random genome."""
-        return Individual(np.random.randint(2, size=n))
+        """Generate random genome with.."""
+        while True:
+            candidate = np.random.randint(2, size=n)
+            if candidate.sum() > 1:
+                return Individual(candidate)
+        # return Individual(np.random.randint(2, size=n))
 
     def __eq__(self, other: "Individual"):
         return id(self) == id(other)

@@ -13,6 +13,8 @@ xgboost = "*"
 matplotlib = "*"
 shap = "*"
 tqdm = "*"
+plotly = "*"
+altair = "*"
 
 [requires]
 python_version = "3.8"
@@ -23,6 +25,6 @@ install_kernel = "python -m ipykernel install --user --name=avatar"
 [pipenv]
 allow_prereleases = true
 
-[packages.e1839a8]
-path = "."
-editable = true
+[dev-packages]
+black = "==19.3b0"
+filelock = "*"

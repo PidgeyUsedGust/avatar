@@ -1,4 +1,5 @@
 """Simple transformation language."""
+import numpy as np
 import pandas as pd
 import tqdm
 from pandas._typing import Label
@@ -43,21 +44,25 @@ class WranglingTransformation:
         self._transformation = transformation
         self._replace = replace
 
+    def execute(self, df: pd.DataFrame) -> pd.DataFrame:
+        new_columns = self._transformation(df[self._column])
+        new_columns.rename(
+            columns=lambda x: "{}_{}".format(self, x),
+            inplace=True,
+        )
+        return new_columns
+
     def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply transformation to dataframe.
 
         If replacing is True, remove the original column.
 
         """
-        new_columns = self._transformation(df[self._column])
-        new_columns.rename(
-            columns=lambda x: "{}_{}".format(self, x),
-            inplace=True,
-        )
+        new_columns = self.execute(df)
         new_df = pd.concat((df, new_columns), axis=1)
         if self._replace and (self._column in new_df.columns):
             new_df = new_df.drop(self._column, axis=1)
-        return new_df
+        return new_columns
 
     def __eq__(self, other: "WranglingTransformation"):
         return (self._column == other._column) and (
@@ -118,8 +123,7 @@ class WranglingLanguage:
 
         """
         exclude = exclude or set()
-        if target is not None:
-            exclude.add(target)
+        exclude.add(target)
         pbar = tqdm.tqdm(
             total=len(self._transformations) * len(df.columns),
             disable=not verbose,
@@ -155,15 +159,21 @@ class WranglingLanguage:
 
         """
         transformations = self.transformations(df, exclude=exclude, target=target)
-        pb = tqdm.tqdm(
+        dataframes = [df]
+        columns = set(df.columns)
+        pbar = tqdm.tqdm(
             total=len(transformations),
             disable=not verbose,
             desc="Applying transformations",
         )
         for transformation in transformations:
-            df = transformation(df)
-            pb.update()
-        return df
+            new_dataframe = transformation.execute(df)
+            new_columns = set(new_dataframe.columns)
+            if not (columns & new_columns):
+                dataframes.append(new_dataframe)
+                columns.update(new_columns)
+            pbar.update()
+        return pd.concat(dataframes, axis=1).replace("", np.nan)
 
     def make_program(
         self, df: pd.DataFrame, features: List[Label]

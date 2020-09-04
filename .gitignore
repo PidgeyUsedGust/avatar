@@ -1,3 +1,6 @@
+._*.json
+._*.csv
+
 *DS_Store*
 Pipfile.lock
 
