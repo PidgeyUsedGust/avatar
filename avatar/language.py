@@ -23,9 +23,9 @@ default_transformations = [
     # semantic
     WordToNumber,
     # imputation
-    MeanImputation,
-    ModeImputation,
-    MedianImputation,
+    # MeanImputation,
+    # ModeImputation,
+    # MedianImputation,
 ]
 """List of all supported transformations."""
 
@@ -62,7 +62,7 @@ class WranglingTransformation:
         new_df = pd.concat((df, new_columns), axis=1)
         if self._replace and (self._column in new_df.columns):
             new_df = new_df.drop(self._column, axis=1)
-        return new_columns
+        return new_df
 
     def __eq__(self, other: "WranglingTransformation"):
         return (self._column == other._column) and (
@@ -90,8 +90,15 @@ class WranglingProgram:
     def __str__(self) -> str:
         return "\n".join(map(str, self._transformations))
 
+    def __repr__(self) -> str:
+        return str(self)
+
     def grow(self, transformation: WranglingTransformation):
         self._transformations.append(transformation)
+
+    @property    
+    def transformations(self):
+        return self._transformations
 
 
 class WranglingLanguage:
@@ -107,73 +114,82 @@ class WranglingLanguage:
         """
         if transformations is None:
             transformations = default_transformations
-        self._transformations = transformations
-        self._transformation_map = dict()
+        self.transformations = transformations
 
-    def transformations(
-        self,
-        df: pd.DataFrame,
-        target: Label = None,
-        exclude: Optional[List[Label]] = None,
-    ) -> List[Tuple[str, Transformation]]:
-        """Get allowed arguments for wrangling transformation.
-
-        Args:
-            exclude: Subset of columns to exclude.
-
-        """
-        exclude = exclude or set()
-        exclude.add(target)
-        pbar = tqdm.tqdm(
-            total=len(self._transformations) * len(df.columns),
-            disable=not verbose,
-            desc="Finding  transformations",
-        )
-        # find transformations
+    def get_transformations(self, column: pd.Series) -> List[WranglingTransformation]:
         transformations = list()
         for transformation in self._transformations:
-            for i, column in df.iteritems():
-                if i not in exclude and column.dtype.name in transformation.allowed:
-                    arguments = transformation.arguments(column)
-                    for argument in arguments:
-                        transformations.append(
-                            WranglingTransformation(i, transformation(*argument))
-                        )
-                pbar.update()
-        # store transformations
-        for transformation in transformations:
-            self._transformation_map[str(transformation)] = transformation
-        return transformations
+            if column.dtype.name in transformation.allowed:
+                arguments = transformation.arguments(column)
+                for argument in arguments:
+                    transformations.append(
+                        WranglingTransformation(i, transformation(*argument))
+                    )
 
-    def expand(
-        self,
-        df: pd.DataFrame,
-        exclude: Optional[List[Label]] = None,
-        target: Label = None,
-    ) -> pd.DataFrame:
-        """Expand dataframe with all transformations.
+    # def transformations(
+    #     self,
+    #     df: pd.DataFrame,
+    #     target: Label = None,
+    #     exclude: Optional[List[Label]] = None,
+    # ) -> List[Tuple[str, Transformation]]:
+    #     """Get allowed arguments for wrangling transformation.
 
-        Args:
-            exclude: Subset of columns to exclude.
-            target: If provided, will skip this column.
+    #     Args:
+    #         exclude: Subset of columns to exclude.
 
-        """
-        transformations = self.transformations(df, exclude=exclude, target=target)
-        dataframes = [df]
-        columns = set(df.columns)
-        pbar = tqdm.tqdm(
-            total=len(transformations),
-            disable=not verbose,
-            desc="Applying transformations",
-        )
-        for transformation in transformations:
-            new_dataframe = transformation.execute(df)
-            new_columns = set(new_dataframe.columns)
-            if not (columns & new_columns):
-                dataframes.append(new_dataframe)
-                columns.update(new_columns)
-            pbar.update()
-        return pd.concat(dataframes, axis=1).replace("", np.nan)
+    #     """
+    #     exclude = exclude or set()
+    #     exclude.add(target)
+    #     pbar = tqdm.tqdm(
+    #         total=len(self._transformations) * len(df.columns),
+    #         disable=not verbose,
+    #         desc="Finding  transformations",
+    #     )
+    #     # find transformations
+    #     transformations = list()
+    #     for transformation in self._transformations:
+    #         for i, column in df.iteritems():
+    #             if i not in exclude and column.dtype.name in transformation.allowed:
+    #                 arguments = transformation.arguments(column)
+    #                 for argument in arguments:
+    #                     transformations.append(
+    #                         WranglingTransformation(i, transformation(*argument))
+    #                     )
+    #             pbar.update()
+    #     # store transformations
+    #     for transformation in transformations:
+    #         self._transformation_map[str(transformation)] = transformation
+    #     return transformations
+
+    # def expand(
+    #     self,
+    #     df: pd.DataFrame,
+    #     exclude: Optional[List[Label]] = None,
+    #     target: Label = None,
+    # ) -> pd.DataFrame:
+    #     """Expand dataframe with all transformations.
+
+    #     Args:
+    #         exclude: Subset of columns to exclude.
+    #         target: If provided, will skip this column.
+
+    #     """
+    #     transformations = self.transformations(df, exclude=exclude, target=target)
+    #     dataframes = [df]
+    #     columns = set(df.columns)
+    #     pbar = tqdm.tqdm(
+    #         total=len(transformations),
+    #         disable=not verbose,
+    #         desc="Applying transformations",
+    #     )
+    #     for transformation in transformations:
+    #         new_dataframe = transformation.execute(df)
+    #         new_columns = set(new_dataframe.columns)
+    #         if not (columns & new_columns):
+    #             dataframes.append(new_dataframe)
+    #             columns.update(new_columns)
+    #         pbar.update()
+    #     return pd.concat(dataframes, axis=1).replace("", np.nan)
 
     def make_program(
         self, df: pd.DataFrame, features: List[Label]

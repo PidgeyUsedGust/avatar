@@ -46,14 +46,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--experiment")
     parser.add_argument("-d", "--depth", type=int, default=12)
-    parser.add_argument("-f", "--filter", type=str, default="")
+    parser.add_argument("-f", "--force", action="store_true", default=False)
     args = parser.parse_args()
 
     # load data
     exp = Path(args.experiment)
     out = Path(Path(str(exp).replace("processed", "results"))) / "performance"
     out.mkdir(parents=True, exist_ok=True)
-    # out_file = out / (exp.name + ".csv")
 
     # read experiment
     experiment = read_experiment(exp)
@@ -65,11 +64,10 @@ if __name__ == "__main__":
     fold_pbar = tqdm(total=0, position=2)
 
     for f, results in experiment["features"].items():
-        if args.filter and args.filter not in f:
-            continue
 
         out_file = out / "{}_(depth={}).csv".format(short_name(f), args.depth)
-        if out_file.exists():
+        if out_file.exists() and not args.force:
+            feature_pbar.update()
             continue
 
         runs = list()
@@ -92,34 +90,13 @@ if __name__ == "__main__":
             scores_ranks = np.argsort(scores)[::-1]
             columns = np.array(iteration["columns"])
 
-            # k based
-            for k in Ks:
-                # stop if using features without relevance
-                if k > scores_nz:
-                    break
-                top = columns[scores_ranks][:k]
-                if experiment["target"] not in top:
-                    top = np.append(top, experiment["target"])
-                # get data
-                data = experiment["data"][i][top]
-                # evaluate
-                evaluator.fit(data, target=experiment["target"])
-                runs.append(
-                    {
-                        "run": f,
-                        "k": k,
-                        "k_method": "{:.2f} k".format(k / K),
-                        "i": i,
-                        "max depth": args.depth,
-                        "accuracy": evaluator.evaluate(),
-                    }
-                )
-                fold_pbar.update()
-
             # explanation based
             for explain in [0.8, 0.85, 0.9, 0.95]:
                 # select
                 k = np.searchsorted(np.cumsum(scores[scores_ranks]), explain) + 1
+                # add to list of possible k
+                if k not in Ks:
+                    Ks.add(k)
                 top = columns[scores_ranks][:k]
                 if experiment["target"] not in top:
                     top = np.append(top, experiment["target"])
@@ -139,19 +116,34 @@ if __name__ == "__main__":
                 )
                 fold_pbar.update()
 
+                # k based
+                for k in Ks:
+                    # stop if using features without relevance
+                    if k > scores_nz:
+                        break
+                    top = columns[scores_ranks][:k]
+                    if experiment["target"] not in top:
+                        top = np.append(top, experiment["target"])
+                    # get data
+                    data = experiment["data"][i][top]
+                    # evaluate
+                    evaluator.fit(data, target=experiment["target"])
+                    runs.append(
+                        {
+                            "run": f,
+                            "k": k,
+                            "k_method": "{:.2f} k".format(k / K),
+                            "i": i,
+                            "max depth": args.depth,
+                            "accuracy": evaluator.evaluate(),
+                        }
+                    )
+                    fold_pbar.update()
+
+
             iteration_pbar.update()
 
         df = pd.DataFrame(runs)
         df.to_csv(out_file)
 
         feature_pbar.update()
-
-    # df = pd.DataFrame(runs)
-
-    # if out_file.exists():
-    #     old = pd.read_csv(out_file)
-    #     new = pd.concat((old, df)).drop_duplicates(ignore_index=True)
-    # else:
-    #     new = df
-
-    # new.to_csv(out_file)

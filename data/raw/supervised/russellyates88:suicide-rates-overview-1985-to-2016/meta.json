@@ -1,5 +1,0 @@
-{
-    "target": "suicides_no",
-    "type": "regression",
-    "ignore": ["suicides/100k pop"]
-}

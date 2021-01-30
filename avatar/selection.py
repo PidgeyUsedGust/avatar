@@ -14,10 +14,12 @@ from typing import Union, Optional, Set, Tuple, List, Callable, Dict
 from pandas._typing import Label
 from pandas.api.types import is_numeric_dtype  # , is_string_type
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 from sklearn.tree import export_text
 from mercs.core import Mercs
 from .utilities import to_mercs, to_m_codes
 from .analysis import FeatureEvaluator
+from .settings import verbose
 
 
 np.random.seed(1337)
@@ -37,7 +39,7 @@ class Selector:
         """
 
         if evaluator is None:
-            evaluator = FeatureEvaluator(method=None, n_folds=4, max_depth=4)
+            evaluator = FeatureEvaluator(n_folds=4, max_depth=4, n_samples=1000)
         self._evaluator = evaluator
 
         # the following attributes are to be filled by the
@@ -122,7 +124,7 @@ class SamplingSelector(Selector):
 
     def __init__(
         self,
-        iterations: Union[int, float] = 100,
+        iterations: Union[int, float] = 1600,
         explain: float = 0.9,
         evaluator: Optional[FeatureEvaluator] = None,
     ):
@@ -150,7 +152,7 @@ class SamplingSelector(Selector):
         fimps = np.zeros((iterations, len(self._df.columns)))
         masks = np.zeros((iterations, len(self._df.columns)))
         # run sampling
-        for i in range(iterations):
+        for i in tqdm(range(iterations), desc="Ranking features", disable=not verbose):
             mask = self._generate_mask()
             masks[i] = mask
             scores[i], fimps[i] = self._evaluator.evaluate(mask)

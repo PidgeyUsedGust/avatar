@@ -70,23 +70,6 @@ def short_name(name):
     return name
 
 
-# def safe_add(values, file):
-#     lock = FileLock(str(file) + ".lock")
-#     with lock:
-#         if file.exists():
-#             with open(file) as f:
-#                 data = json.load(f)
-#         else:
-#             data = dict()
-#         data.update(values)
-#         with open(file, "w") as f:
-#             json.dump(data, f)
-
-# def save(values, file):
-#     with open(file, "w") as f:
-#         json.dump(values, f)
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()

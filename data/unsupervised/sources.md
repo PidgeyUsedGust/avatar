@@ -18,6 +18,9 @@ Datasets of around a few megabytes.
 7. <https://www.kaggle.com/koki25ando/22000-scotch-whisky-reviews>
 8. <https://www.kaggle.com/omarhanyy/500-greatest-songs-of-all-time>
 9. <https://www.kaggle.com/ekrembayar/fifa-21-complete-player-dataset>
+10. <https://www.kaggle.com/NUFORC/ufo-sightings>
+11. <https://www.kaggle.com/fazilbtopal/auto85>
+12. <https://www.kaggle.com/jguerreiro/running>
 
 ## Medium datasets
 

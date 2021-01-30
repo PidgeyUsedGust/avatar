@@ -102,8 +102,8 @@ class IdenticalFilter:
     def select(self, df: pd.DataFrame, target=None):
         # first, remove exact duplicates
         df = df.loc[:, ~df.T.duplicated(keep="first")]
-        # then, almost 
-        pbar = tqdm(total=len(df.columns), disable=not verbose)
+        # then, almost
+        pbar = tqdm(total=len(df.columns), desc="Pruning", disable=not verbose)
         for i in range(df.shape[1]):
             if i >= len(df.columns):
                 break
@@ -112,7 +112,6 @@ class IdenticalFilter:
             hamming = compare.sum() / len(df.index)
             df = df.drop(hamming[hamming > self._threshold].index, axis=1)
             pbar.update()
-            pbar.set_description("ID " + str(len(df.columns)))
         return df
 
 

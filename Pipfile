@@ -6,15 +6,17 @@ verify_ssl = true
 [packages]
 pandas = "*"
 mercs = "*"
-jupyter = "*"
 word2number = "*"
 sklearn = "*"
 xgboost = "*"
 matplotlib = "*"
 shap = "*"
 tqdm = "*"
-plotly = "*"
+ipywidgets = "*"
 altair = "*"
+avatar = {editable = true, path = "."}
+jupyterlab = "*"
+altair-saver = "*"
 
 [requires]
 python_version = "3.8"
@@ -27,4 +29,6 @@ allow_prereleases = true
 
 [dev-packages]
 black = "==19.3b0"
-filelock = "*"
+psutil = "*"
+selenium = "*"
+altair-saver = "*"

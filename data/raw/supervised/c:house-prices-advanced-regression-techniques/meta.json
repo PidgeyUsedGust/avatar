@@ -1,4 +1,5 @@
 {
-    "target": "SalePrice",
-    "type": "regression"
+    "target": "LogSalePrice",
+    "type": "regression",
+    "ignore": "SalePrice"
 }

@@ -1,1 +1,2 @@
-verbose = True
+class Settings:
+    verbose = True

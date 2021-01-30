@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Tuple, List, Set, Optional, Union
 from functools import cached_property
 from collections import defaultdict
-from sklearn.metrics import accuracy_score, r2_score
+from sklearn.metrics import accuracy_score, r2_score, mean_squared_error
 from sklearn.model_selection import KFold
 from sklearn.tree import export_text
 from mercs.core import Mercs
@@ -176,6 +176,7 @@ class FeatureEvaluator:
         # or regression
         else:
             return max(r2_score(truth, prediction), 0)
+            # return mean_squared_error(truth, prediction)
 
     def _truth(self, code: np.ndarray, fold: int) -> np.ndarray:
         """Get truth for m_code."""
@@ -322,17 +323,23 @@ class DatasetEvaluator:
         self._target = target
         self._target_index = df.columns.get_loc(target)
 
-    def evaluate(self, evaluation=False):
+    def evaluate(self, get_importances=False):
         """Evaluate on folds. """
         # generate a code
         code = self._code()
         # run the train, test splits.
         accuracies = list()
+        importances = list()
         for train, test in self._folds():
             test = np.nan_to_num(test)
             # learn model
             model = Mercs(**self._m_args)
             model.fit(train, nominal_attributes=self._nominal, m_codes=code)
+            if get_importances:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    model.avatar(train, keep_abs_shap=True, check_additivity=False)
+                    importances.append(np.sum(model.nrm_shaps, axis=0))
             # make prediction for each model
             for m_code in model.m_codes:
                 prediction = model.predict(test, q_code=m_code)
@@ -342,8 +349,10 @@ class DatasetEvaluator:
                     accuracy = accuracy_score(truth, prediction)
                 # or regression
                 else:
-                    accuracy = max(r2_score(truth, prediction), 0)
+                    accuracy = mean_squared_error(truth, prediction)
                 accuracies.append(accuracy)
+        if get_importances:
+            return np.mean(accuracies), np.mean(importances, axis=0)
         return np.mean(accuracies)
 
     def _code(self) -> np.ndarray:
@@ -368,7 +377,9 @@ class DatasetEvaluator:
             A (train, test) split at each iteration.
 
         """
-        for train, test in KFold(n_splits=self._n_folds).split(self._data):
+        for train, test in KFold(
+            n_splits=self._n_folds, shuffle=True, random_state=1337
+        ).split(self._data):
             yield self._data[train], self._data[test]
 
     def _metadata(self):

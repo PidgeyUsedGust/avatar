@@ -4,9 +4,7 @@ from typing import List, Tuple, Any
 
 
 class Transformation:
-    """Generic transformation.
-    
-    """
+    """Generic transformation."""
 
     allowed = []
 

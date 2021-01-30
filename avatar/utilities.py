@@ -37,6 +37,11 @@ def xor(a: bool, b: bool) -> bool:
     return (a and b) or (not a and not b)
 
 
+def hash_series(s: pd.Series) -> int:
+    """Hash the series."""
+    pass
+
+
 def to_mercs(df: pd.DataFrame) -> Tuple[pd.DataFrame, Set[Label]]:
     """Encode dataframe for MERCS.
     
@@ -47,7 +52,7 @@ def to_mercs(df: pd.DataFrame) -> Tuple[pd.DataFrame, Set[Label]]:
     new = pd.DataFrame()
     nom = set()
     for i, column in enumerate(df):
-        if df[column].dtype.name in ["category", "object"]:
+        if df[column].dtype.name in ["category", "object", "bool"]:
             new[column] = df[column].astype("category").cat.codes.replace(-1, np.nan)
             nom.add(i)
         else:
