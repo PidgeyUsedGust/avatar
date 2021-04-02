@@ -51,13 +51,13 @@ class NaN(Transformation):
     """
 
     def __init__(self, value: str):
-        self._value = value
+        self.value = value
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return column.replace(self._value, np.nan).to_frame()
+        return column.replace(self.value, np.nan).to_frame()
 
     def __str__(self) -> str:
-        return "NaN({})".format(self._value)
+        return "NaN({})".format(self.value)
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:

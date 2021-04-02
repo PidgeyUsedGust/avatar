@@ -16,10 +16,10 @@ from pandas.api.types import is_numeric_dtype  # , is_string_type
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from sklearn.tree import export_text
-from mercs.core import Mercs
+# from mercs.core import Mercs
 from .utilities import to_mercs, to_m_codes
 from .analysis import FeatureEvaluator
-from .settings import verbose
+from .settings import Settings
 
 
 np.random.seed(1337)

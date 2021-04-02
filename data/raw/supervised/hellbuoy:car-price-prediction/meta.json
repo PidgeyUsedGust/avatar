@@ -1,5 +1,0 @@
-{
-    "target": "logprice",
-    "type": "regression",
-    "ignore": ["price"]
-}

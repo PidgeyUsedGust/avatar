@@ -10,16 +10,15 @@ import numpy as np
 from .base import Transformation
 
 
-# try:
 from word2number import w2n
 
 
 def to_number(value: str) -> float:
     """Convert value to a number.
-    
+
     Args:
         value: A string.
-    
+
     Returns:
         Numeric value of string. If cannot convert, return `np.nan`.
     """
@@ -45,10 +44,6 @@ class WordToNumber(Transformation):
             if not np.isnan(v):
                 return [()]
         return []
-
-
-# except:
-#     pass
 
 
 class NormaliseTimedelta(Transformation):

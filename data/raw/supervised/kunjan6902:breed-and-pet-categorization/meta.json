@@ -1,5 +1,0 @@
-{
-    "target": "pet_category",
-    "type": "classification",
-    "ignore": ["breed_category"]
-}

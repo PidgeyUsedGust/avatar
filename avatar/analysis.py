@@ -16,8 +16,8 @@ from collections import defaultdict
 from sklearn.metrics import accuracy_score, r2_score, mean_squared_error
 from sklearn.model_selection import KFold
 from sklearn.tree import export_text
-from mercs.core import Mercs
-from mercs.algo.selection import base_selection_algorithm, random_selection_algorithm
+# from mercs.core import Mercs
+# from mercs.algo.selection import base_selection_algorithm, random_selection_algorithm
 from .utilities import normalize, to_mercs, to_m_codes
 
 
@@ -118,7 +118,7 @@ class FeatureEvaluator:
         """
         return self.accuracy(mask), self.importances(mask)
 
-    def _models(self, mask: np.ndarray) -> List[Mercs]:
+    def _models(self, mask: np.ndarray) -> List["Mercs"]:
         """Generate models for a given mask.
 
         Returns:

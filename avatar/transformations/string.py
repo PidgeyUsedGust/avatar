@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .base import Transformation
-from ..utilities import get_substrings, count_unique
+from ..utilities import count_unique
 
 
 class StringTransformation(Transformation):
@@ -21,13 +21,13 @@ class Split(StringTransformation):
     """Split column by delimiter."""
 
     def __init__(self, delimiter: str):
-        self._delimiter = re.escape(delimiter)
+        self.delimiter = re.escape(delimiter)
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return column.str.split(pat=self._delimiter, expand=True)
+        return column.str.split(pat=self.delimiter, expand=True)
 
     def __str__(self) -> str:
-        return "Split({})".format(re.sub(r"\\(.)", r"\1", self._delimiter))
+        return "Split({})".format(re.sub(r"\\(.)", r"\1", self.delimiter))
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
@@ -44,8 +44,7 @@ class Split(StringTransformation):
         for delimiters in split:
             delimiters = [d for d in delimiters if d]
             for delimiter in delimiters:
-                for substring in get_substrings(delimiter):
-                    arguments.add(("{}".format(substring),))
+                arguments.add((delimiter,))
         return arguments
 
 
@@ -71,15 +70,15 @@ class SplitAlign(StringTransformation):
     max_categories = 30
 
     def __init__(self, delimiter: str):
-        self._delimiter = (
+        self.delimiter = (
             delimiter.replace("(", "\(").replace(")", "\)").replace("+", "\+")
         )
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return column.str.get_dummies(sep=self._delimiter)
+        return column.str.get_dummies(sep=self.delimiter)
 
     def __str__(self) -> str:
-        return "SplitAlign({})".format(self._delimiter)
+        return "SplitAlign({})".format(self.delimiter)
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
@@ -91,7 +90,7 @@ class SplitAlign(StringTransformation):
 
         # compute max number of categories
         if cls.max_categories <= 1:
-            max_categories = len(column) * max_categories
+            max_categories = len(column) * cls.max_categories
         else:
             max_categories = cls.max_categories
 
@@ -109,7 +108,7 @@ class SplitAlign(StringTransformation):
         return arguments
 
 
-class ExtractNumber(StringTransformation):
+class ExtractNumberPattern(StringTransformation):
     """Extract a number from text.
 
     Can either extract any number or a fixed pattern.
@@ -124,17 +123,17 @@ class ExtractNumber(StringTransformation):
 
     def __init__(self, pattern: str = ""):
         if pattern == "":
-            self._regex = self.default
+            self.pattern = self.default
         else:
-            self._regex = pattern
+            self.pattern = pattern
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        expanded = column.str.extract(pat=self._regex, expand=True)
+        expanded = column.str.extract(pat=self.pattern, expand=True)
         expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
         return expanded
 
     def __str__(self) -> str:
-        return "ExtractNumber({})".format(self._regex[8:-8])
+        return "ExtractNumberPattern({})".format(self.pattern[8:-8])
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[str]]:
@@ -165,42 +164,30 @@ class ExtractNumber(StringTransformation):
         return r"(?:^|\D)(" + pattern + r")(?:\D|$)"
 
 
-# class ExtractNumber(StringTransformation):
-#     """Exctract first number."""
+class ExtractNumberK(StringTransformation):
+    """Extract k'th simple number."""
 
-#     default = r"([-+]?(?:(?:\d*[,.]\d+)|(?:\d+[.,]?))(?:[Ee][+-]?\d+)?)"
-#     table = {ord(value): "0" for value in string.digits}
+    def __init__(self, k: int = 0):
+        self.k = k
 
-#     def __call__(self, column: pd.Series) -> pd.DataFrame:
-#         expanded = column.str.extract(pat=self.default, expand=True)
-#         expanded = expanded.iloc[:, 0].str.replace(",", ".").astype("float").to_frame()
-#         return expanded
+    def __call__(self, column: pd.Series) -> pd.DataFrame:
+        expanded = column.str.extractall(pat=r"(\d+)").unstack().droplevel(0, axis=1)
+        expanded = expanded.iloc[:, self.k].astype("float").to_frame()
+        return expanded
 
-#     def __str__(self) -> str:
-#         return "ExtractNumber()"
+    def __str__(self) -> str:
+        return "ExtractNumberK({})".format(self.k)
 
-#     @classmethod
-#     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
-#         column = column.dropna().map(cls.translate).drop_duplicates()
-#         numbers = column.str.extract(pat=cls.default, expand=True).iloc[:, 0]
-#         if numbers.notna().any():
-#             return [()]
-#         return []
-
-#     @classmethod
-#     def translate(cls, string: str) -> str:
-#         return string.translate(cls.table)
-
-#     @classmethod
-#     def pattern(cls, string: str) -> List[str]:
-#         pattern = ""
-#         for k, g in itertools.groupby(string):
-#             if k == "0":
-#                 pattern += r"\d{{{}}}".format(len(list(g)))
-#             else:
-#                 pattern += re.escape(k)
-#         # return "(" + pattern + ")"
-#         return r"(?:^|\D)(" + pattern + r")(?:\D|$)"
+    @classmethod
+    def arguments(cls, column: pd.Series) -> List[Tuple[int]]:
+        if column.dtype != object:
+            return []
+        # get reduced representation
+        column = column.dropna().drop_duplicates()
+        # get all numbers
+        numbers = column.str.extractall(r"(\d+)").unstack().droplevel(0, axis=1)
+        # turn into k
+        return [(k,) for k in range(len(numbers.columns))]
 
 
 class ExtractWord(StringTransformation):
@@ -208,17 +195,17 @@ class ExtractWord(StringTransformation):
 
     beam = 1
     stop = 2
-    max_words = 30
+    max_words = 20
 
     def __init__(self, words: Set[str]):
-        self._words = words
+        self.words = words
         self._regex = "({})".format("|".join(words))
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        return column.str.extract(self._regex)
+        return column.str.extract(self._regex, expand=True)
 
     def __str__(self) -> str:
-        return "ExtractWord([{}])".format(", ".join(sorted(self._words)))
+        return "ExtractWord([{}])".format(", ".join(sorted(self.words)))
 
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[Set[str]]]:
@@ -264,6 +251,39 @@ class ExtractWord(StringTransformation):
                 # add to queue
                 queue.append((new_counter, new_column, new_found))
         return result
+
+
+class ExtractBoolean(StringTransformation):
+    """Check whether a single word occurs."""
+
+    occurences = 0.05
+
+    def __init__(self, word: str):
+        self.word = word
+        self._regex = "[^a-zA-Z]{}[^a-zA-Z]".format(word)
+
+    def __call__(self, column: pd.Series) -> pd.DataFrame:
+        return column.str.contains(self._regex, regex=True).astype(bool).to_frame()
+
+    def __str__(self) -> str:
+        return "ExtractBoolean({})".format(self.word)
+
+    @classmethod
+    def arguments(cls, column: pd.Series) -> List[Tuple[Set[str]]]:
+        """Extract words that occur in at least some rows."""
+        n = len(column) * cls.occurences
+        words = column.str.extractall(pat=r"([a-zA-Z]+)")
+        words = set(words[0].values)
+        arguments = set()
+        for word in words:
+            if (
+                column.str.contains(
+                    "[^a-zA-Z]{}[^a-zA-Z]".format(word), regex=True
+                ).sum()
+                >= n
+            ):
+                arguments.add((word,))
+        return arguments
 
 
 class Lowercase(StringTransformation):

@@ -1,31 +1,21 @@
 """Simple transformation language."""
 import numpy as np
 import pandas as pd
-import tqdm
-from pandas._typing import Label
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from .transformations import *
-from .settings import verbose
+from .utilities import encode_name
+from .settings import Settings
 
 
 default_transformations = [
-    # string
     Split,
     SplitAlign,
-    ExtractNumber,
+    ExtractNumberPattern,
+    ExtractNumberK,
     ExtractWord,
-    Lowercase,
-    # type
+    ExtractBoolean,
     Numerical,
-    # encoding
-    OneHot,
-    NaN,
-    # semantic
     WordToNumber,
-    # imputation
-    # MeanImputation,
-    # ModeImputation,
-    # MedianImputation,
 ]
 """List of all supported transformations."""
 
@@ -41,13 +31,13 @@ class WranglingTransformation:
 
         """
         self._column = column
-        self._transformation = transformation
+        self.transformation = transformation
         self._replace = replace
 
     def execute(self, df: pd.DataFrame) -> pd.DataFrame:
-        new_columns = self._transformation(df[self._column])
+        new_columns = self.transformation(df[self._column])
         new_columns.rename(
-            columns=lambda x: "{}_{}".format(self, x),
+            columns=lambda x: encode_name("{}_{}".format(self, x)),
             inplace=True,
         )
         return new_columns
@@ -66,11 +56,16 @@ class WranglingTransformation:
 
     def __eq__(self, other: "WranglingTransformation"):
         return (self._column == other._column) and (
-            self._transformation == other._transformation
+            self.transformation == other.transformation
         )
 
     def __str__(self):
-        return "{}({})".format(self._transformation, self._column)
+        return "{}({})".format(self.transformation, self._column)
+
+    def __repr__(self):
+        return "WranglingTransformation({}, {})".format(
+            self._column, self.transformation
+        )
 
 
 class WranglingProgram:
@@ -96,7 +91,7 @@ class WranglingProgram:
     def grow(self, transformation: WranglingTransformation):
         self._transformations.append(transformation)
 
-    @property    
+    @property
     def transformations(self):
         return self._transformations
 
@@ -117,14 +112,21 @@ class WranglingLanguage:
         self.transformations = transformations
 
     def get_transformations(self, column: pd.Series) -> List[WranglingTransformation]:
+        """Get transformations that can be applied to column.
+
+        Returns:
+            A list of transformations.
+
+        """
         transformations = list()
-        for transformation in self._transformations:
+        for transformation in self.transformations:
             if column.dtype.name in transformation.allowed:
                 arguments = transformation.arguments(column)
                 for argument in arguments:
                     transformations.append(
-                        WranglingTransformation(i, transformation(*argument))
+                        WranglingTransformation(column.name, transformation(*argument))
                     )
+        return transformations
 
     # def transformations(
     #     self,
@@ -191,45 +193,45 @@ class WranglingLanguage:
     #         pbar.update()
     #     return pd.concat(dataframes, axis=1).replace("", np.nan)
 
-    def make_program(
-        self, df: pd.DataFrame, features: List[Label]
-    ) -> "WranglingProgram":
-        """Build program from selected features.
+    # def make_program(
+    #     self, df: pd.DataFrame, features: List[Label]
+    # ) -> "WranglingProgram":
+    #     """Build program from selected features.
 
-        Args:
-            df: Original dataframe.
+    #     Args:
+    #         df: Original dataframe.
 
-        """
-        # keep a queue of features to find and their depth
-        queue = [(feature,) for feature in features]
-        chains = list()
-        # find transformations
-        while len(queue) > 0:
-            chain = queue.pop()
-            # get name of column
-            feature = chain[-1]
-            if isinstance(feature, str):
-                chain = ()
-            else:
-                feature = feature._column
-            # find transformation that made feature
-            found = None
-            for name, transformation in self._transformation_map.items():
-                if feature.startswith(name):
-                    found = transformation
-            # add next to queue
-            if found is not None:
-                queue.append((*chain, found))
-            else:
-                chains.append(chain)
-        # build into program
-        program = WranglingProgram()
-        for chain in chains:
-            chain = chain[::-1]
-            for transformation in chain:
-                if transformation not in program:
-                    program.grow(transformation)
-        for column in program(df).columns:
-            if column not in features:
-                program.grow(WranglingTransformation(column, Drop(), replace=True))
-        return program
+    #     """
+    #     # keep a queue of features to find and their depth
+    #     queue = [(feature,) for feature in features]
+    #     chains = list()
+    #     # find transformations
+    #     while len(queue) > 0:
+    #         chain = queue.pop()
+    #         # get name of column
+    #         feature = chain[-1]
+    #         if isinstance(feature, str):
+    #             chain = ()
+    #         else:
+    #             feature = feature._column
+    #         # find transformation that made feature
+    #         found = None
+    #         for name, transformation in self._transformation_map.items():
+    #             if feature.startswith(name):
+    #                 found = transformation
+    #         # add next to queue
+    #         if found is not None:
+    #             queue.append((*chain, found))
+    #         else:
+    #             chains.append(chain)
+    #     # build into program
+    #     program = WranglingProgram()
+    #     for chain in chains:
+    #         chain = chain[::-1]
+    #         for transformation in chain:
+    #             if transformation not in program:
+    #                 program.grow(transformation)
+    #     for column in program(df).columns:
+    #         if column not in features:
+    #             program.grow(WranglingTransformation(column, Drop(), replace=True))
+    #     return program

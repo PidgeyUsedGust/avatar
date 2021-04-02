@@ -1,149 +1,105 @@
 """
 
-Evaluate.
-
+Run feature ranking.
 
 """
-import csv
+from os import name
+from avatar.evaluate import RankingEvaluator
+import sys
+import time
 import json
 import argparse
+import importlib
 import itertools
-import pandas as pd
-import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from utilities import read_supervised_experiment
-from features import short_name
-from avatar.analysis import DatasetEvaluator
+from avatar.supervised import *
+from avatar.settings import Settings
+from avatar.utilities import estimator_to_string
 
 
-def read_experiment(path):
+def get_estimator(classifier, classification: bool = True):
+    """
 
-    # read metadata
-    with open(path / "meta.json") as f:
-        meta = json.load(f)
+    Args:
+        classifier: String representation of classifier.
+        classification: Whether to get a classifier or a regressor.
 
-    # read dataframes
-    dataframes = [
-        pd.read_csv(path / (file + ".csv"), dtype=dtypes, na_values="nan")
-        for file, dtypes in meta["types"].items()
-    ]
-    dataframes = sorted(dataframes, key=lambda df: len(df.columns))
+    Returns:
+        Classifier object.
 
-    # read features
-    features = dict()
-    for file in (path / "features").glob("*.json"):
-        if file.name.startswith("."):
-            continue
-        with open(file) as f:
-            features.update(json.load(f))
-
-    return {"data": dataframes, "target": meta["target"], "features": features}
+    """
+    name, arguments = classifier.strip(")").split("(")
+    # get right task
+    if classification:
+        name = name.replace("Regressor", "Classifier")
+    else:
+        name = name.replace("Classifier", "Regressor")
+    # try to load the module
+    for module in ["sklearn.tree", "sklearn.ensemble", "xgboost"]:
+        try:
+            m = importlib.import_module(module)
+            try:
+                clf = getattr(m, name)
+                break
+            except AttributeError:
+                pass
+        except ImportError:
+            pass
+    # parse arguments
+    arg = eval("dict({})".format(arguments))
+    # hack for XGB
+    if "XGB" in name:
+        arg["use_label_encoder"] = False
+        arg["verbosity"] = 0
+    return clf(**arg)
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--experiment")
-    parser.add_argument("-d", "--depth", type=int, default=12)
-    parser.add_argument("-f", "--force", action="store_true", default=False)
+    parser.add_argument("--ranking", type=str)
+    parser.add_argument("--estimator", type=str, default=None)
+    parser.add_argument("--max", type=int, default=32)
+    parser.add_argument("--folds", type=int, default=2)
+    parser.add_argument("--verbose", action="store_true", default=False)
+    parser.add_argument("--force", action="store_true", default=False)
     args = parser.parse_args()
 
-    # load data
-    exp = Path(args.experiment)
-    out = Path(Path(str(exp).replace("processed", "results"))) / "performance"
-    out.mkdir(parents=True, exist_ok=True)
+    Settings.verbose = args.verbose
 
-    # read experiment
-    experiment = read_experiment(exp)
+    # load metadata
+    file = Path(args.ranking)
+    name = file.parent.stem
+    with open(file) as metaf:
+        meta = json.load(metaf)
 
-    evaluator = DatasetEvaluator(max_depth=args.depth)
+    # properties
+    classification = meta["type"].lower() == "classification"
 
-    feature_pbar = tqdm(total=len(experiment["features"]), position=0)
-    iteration_pbar = tqdm(total=0, position=1)
-    fold_pbar = tqdm(total=0, position=2)
+    # get estimator
+    if args.estimator is None:
+        args.estimator = "RandomForestRegressor(max_depth=8)"
+    estimator = get_estimator(args.estimator, classification=classification)
 
-    for f, results in experiment["features"].items():
+    # make result file and check if exists
+    result_file = file.parent.parent.parent / "results" / name / file.name
+    if result_file.exists() and not args.force:
+        sys.exit()
 
-        out_file = out / "{}_(depth={}).csv".format(short_name(f), args.depth)
-        if out_file.exists() and not args.force:
-            feature_pbar.update()
-            continue
+    # then load data
+    data = pd.read_csv(meta["data"], index_col=None)
 
-        runs = list()
+    # play
+    evaluator = RankingEvaluator(estimator, max_features=args.max, folds=args.folds)
+    evaluator.fit(data, meta["target"], meta["ranking"])
 
-        # number in original data
-        K = min(len(result["scores"]) for result in results)
-        Ks = set(range(K // 2, K * 2 + 1, 2))
-        Ks.add(K)
+    # collect results
+    results = dict(meta)
+    results["scores"] = evaluator.scores
+    del results["ranking"]
 
-        # to explain
-        Es = [0.8, 0.85, 0.9, 0.95]
-
-        iteration_pbar.reset(total=len(results))
-        for i, iteration in enumerate(results):
-            fold_pbar.reset(total=len(Ks) + len(Es))
-
-            # parse arrays
-            scores = np.array(iteration["scores"])
-            scores_nz = np.count_nonzero(scores)
-            scores_ranks = np.argsort(scores)[::-1]
-            columns = np.array(iteration["columns"])
-
-            # explanation based
-            for explain in [0.8, 0.85, 0.9, 0.95]:
-                # select
-                k = np.searchsorted(np.cumsum(scores[scores_ranks]), explain) + 1
-                # add to list of possible k
-                if k not in Ks:
-                    Ks.add(k)
-                top = columns[scores_ranks][:k]
-                if experiment["target"] not in top:
-                    top = np.append(top, experiment["target"])
-                # get data
-                data = experiment["data"][i][top]
-                # evaluate
-                evaluator.fit(data, target=experiment["target"])
-                runs.append(
-                    {
-                        "run": f,
-                        "k": k,
-                        "k_method": "explain {}".format(explain),
-                        "i": i,
-                        "max depth": args.depth,
-                        "accuracy": evaluator.evaluate(),
-                    }
-                )
-                fold_pbar.update()
-
-                # k based
-                for k in Ks:
-                    # stop if using features without relevance
-                    if k > scores_nz:
-                        break
-                    top = columns[scores_ranks][:k]
-                    if experiment["target"] not in top:
-                        top = np.append(top, experiment["target"])
-                    # get data
-                    data = experiment["data"][i][top]
-                    # evaluate
-                    evaluator.fit(data, target=experiment["target"])
-                    runs.append(
-                        {
-                            "run": f,
-                            "k": k,
-                            "k_method": "{:.2f} k".format(k / K),
-                            "i": i,
-                            "max depth": args.depth,
-                            "accuracy": evaluator.evaluate(),
-                        }
-                    )
-                    fold_pbar.update()
-
-
-            iteration_pbar.update()
-
-        df = pd.DataFrame(runs)
-        df.to_csv(out_file)
-
-        feature_pbar.update()
+    # write to file
+    result_file.parent.mkdir(exist_ok=True, parents=True)
+    with open(result_file, "w") as f:
+        json.dump(results, f, indent=2)

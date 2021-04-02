@@ -13,12 +13,14 @@ def read_supervised_experiment(directory: str):
     # drop columns to ignore
     if "ignore" in meta:
         data.drop(meta["ignore"], axis=1, inplace=True)
+    # drop na
+    data = data.dropna(subset=[meta["target"]])
     # set target type
     if meta["type"] == "classification":
         data[meta["target"]] = data[meta["target"]].astype("category")
     else:
         data[meta["target"]] = data[meta["target"]].astype("float")
-    return data, meta["target"]
+    return data, meta
 
 
 def chunk(which: str, of: List[Any]) -> List[Any]:

@@ -17,3 +17,7 @@ class Transformation:
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[Any]]:
         return ()
+
+    # @property
+    # def name(self) -> str:
+    #     return self.__class__.__name__
