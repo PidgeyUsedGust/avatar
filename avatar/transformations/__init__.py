@@ -18,7 +18,7 @@ __all__ = [
     "Lowercase",
     "WordToNumber",
     "Numerical",
-    # special
+    "TimeFeatures",
     "Drop",
 ]
 """List of all transformations."""

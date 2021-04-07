@@ -1,3 +1,3 @@
 class Settings:
-    verbose = True
+    verbose = False
     n_jobs = 1

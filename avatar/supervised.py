@@ -242,7 +242,7 @@ class Game:
         estimator=None,
         judge: Judge = None,
         rounds: int = 1,
-        samples: int = 1000,
+        samples: int = 1000
     ) -> None:
         """
 

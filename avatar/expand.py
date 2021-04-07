@@ -15,6 +15,7 @@ from .filter import (
     IdenticalFilter,
     MissingFilter,
     ConstantFilter,
+    UniqueFilter,
 )
 
 UnpackedTransformation = Tuple[str, List[str]]
