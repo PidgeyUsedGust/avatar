@@ -1,64 +1,69 @@
-import numpy as np
 import pandas as pd
-from tqdm import tqdm
+import numpy as np
 from abc import abstractmethod, ABC
-from pandas._typing import Label
-from pandas.api.types import is_numeric_dtype
-from sklearn.model_selection import train_test_split
+from typing import Hashable
+from pandas.core.algorithms import value_counts
 from sklearn.metrics import adjusted_mutual_info_score as ami
-from .utilities import to_mercs
-from .settings import Settings
+from scipy.stats import kruskal, kendalltau, ks_2samp
+from scipy.stats.contingency import crosstab, chi2_contingency
+from statsmodels.stats.multitest import multipletests
 
 
-class Filter(ABC):
+class Filter:
     """Generic filter."""
 
-    @abstractmethod
-    def select(self, df: pd.DataFrame, target=None) -> pd.DataFrame:
-        pass
+    def select(self, df: pd.DataFrame, target: Hashable = None) -> pd.DataFrame:
+        return df
 
 
-class StackedFilter:
+class StackedFilter(Filter):
     """Combine differenct filters."""
 
     def __init__(self, selectors):
         self._selectors = selectors
 
-    def select(self, df: pd.DataFrame, target=None):
+    def select(self, df: pd.DataFrame, target: Hashable = None):
         for selector in self._selectors:
             df = selector.select(df, target=target)
         return df
 
 
-class MissingFilter:
+class MissingFilter(Filter):
     """Remove columns missing at least a percentage of values."""
 
     def __init__(self, threshold: float = 0.5):
+        """
+
+        Args:
+            threshold: Remove columns that have this much
+                missing values.
+
+        """
         self.threshold = threshold
 
     def select(self, df: pd.DataFrame, target=None):
         return df.dropna(axis=1, thresh=self.threshold * len(df.index))
 
 
-class GreedyMissingFilter:
-    """Greedily remove column with most missing values."""
+# class GreedyMissingFilter:
+#     """Greedily remove column with most missing values."""
 
-    def __init__(self, min_full: int = 10):
-        self._min_full = min_full
+#     def __init__(self, min_full: int = 10):
+#         self._min_full = min_full
 
-    def select(self, df: pd.DataFrame, target: Label = None):
-        m_count = df.isna().sum(axis=0)
-        missing = m_count.index[(m_count.values).argsort()].tolist()
-        while df.notna().all(axis=1).sum() < self._min_full:
-            remove = missing.pop()
-            df = df.drop(remove, axis=1)
-        return df
+#     def select(self, df: pd.DataFrame, target: Hashable = None):
+#         m_count = df.isna().sum(axis=0)
+#         missing = m_count.index[(m_count.values).argsort()].tolist()
+#         while df.notna().all(axis=1).sum() < self._min_full:
+#             remove = missing.pop()
+#             df = df.drop(remove, axis=1)
+#         return df
 
 
-class ConstantFilter:
+class ConstantFilter(Filter):
     """Remove columns with constants."""
 
-    def __init__(self, threshold: float = 0.9):
+    def __init__(self, threshold: float = 0.95):
         self.threshold = threshold
 
     def select(self, df: pd.DataFrame, target=None):
@@ -75,70 +80,41 @@ class ConstantFilter:
         return df.drop(to_drop, axis=1)
 
 
-class IdenticalFilter:
+class IdenticalFilter(Filter):
     """Remove identical columns.
 
     Remove all columns that are basically identical.
 
     """
 
-    def __init__(self, threshold: float = 0.95):
+    def __init__(self, threshold: float = 1.0):
         self.threshold = threshold
 
     def select(self, df: pd.DataFrame, target=None):
-        # first, remove exact duplicates
         df = df.loc[:, ~df.T.duplicated(keep="first")]
         if self.threshold == 1:
             return df
-        # then, remove almost identical
-        for column in df.columns.tolist():
-            if column not in df:
-                continue
-            # get index of column in current df
-            i = df.columns.get_loc(column)
-            # compute hammign distance between
-            # selected column and all others
-            col_one = df.iloc[:, i]
-            compare = df.iloc[:, i + 1 :].eq(col_one, axis=0)
-            hamming = compare.sum() / len(df.index)
-            df = df.drop(hamming[hamming > self.threshold].index, axis=1)
-        return df
-
-
-# class BijectiveFilter:
-#     """Remove categorical columns that are (almost) bijective."""
-
-#     def __init__(self, threshold: float = 0.95):
-#         self._threshold = threshold
-
-#     def select(self, df: pd.DataFrame, target=None):
-#         return df.drop(self.duplicates(df), axis=1)
-
-#     def duplicates(self, df: pd.DataFrame):
-#         # select only object
-#         df = df.select_dtypes(include="object")
-#         duplicates = set()
-#         for i in range(df.shape[1]):
-#             col_one = df.iloc[:, i]
-#             for j in range(i + 1, df.shape[1]):
-#                 col_two = df.iloc[:, j]
-#                 hamming = (
-#                     col_one.factorize()[0] == col_two.factorize()[0]
-#                 ).sum() / len(df.index)
-#                 if hamming > self._threshold:
-#                     duplicates.add(df.columns[j])
-#         return duplicates
+        todrop = list()
+        for dtype in df.dtypes.unique():
+            dtypef = df.select_dtypes(dtype)
+            for column in dtypef.columns.tolist():
+                if column not in df:
+                    continue
+                i = dtypef.columns.get_loc(column)
+                col_one = dtypef.iloc[:, i]
+                compare = dtypef.iloc[:, i + 1 :]
+        return df.drop(todrop, axis="columns")
 
 
 class BijectiveFilter:
     """Remove categorical columns that are (almost) bijective."""
 
-    def __init__(self, threshold: float = 0.95):
+    def __init__(self, threshold: float = 1.0):
         self._threshold = threshold
 
     def select(self, df: pd.DataFrame, target=None):
         # get all objects
-        dfo = df.select_dtypes(include="object")
+        dfo = df.select_dtypes(include="string")
         dfo_columns = dfo.columns
         # factorize whole object dataframe and remove exacts
         dff = dfo.apply(lambda x: pd.factorize(x)[0])
@@ -151,13 +127,12 @@ class BijectiveFilter:
 class MutualInformationFilter:
     """Remove categorical columns based on AMI."""
 
-    def __init__(self, threshold: float = 0.80):
+    def __init__(self, threshold: float = 0.90):
         self.threshold = threshold
 
     def select(self, df: pd.DataFrame, target=None):
         # get all objects
-        dfo = df.select_dtypes(include="object")
-        dfo_columns = dfo.columns
+        dfo = df.select_dtypes(include=["string", "category"])
         # factorize whole object dataframe and
         # remove exact duplicates
         dff = dfo.apply(lambda x: pd.factorize(x)[0])
@@ -175,27 +150,153 @@ class MutualInformationFilter:
         return df.drop(to_drop, axis=1)
 
 
-class UniqueFilter:
-    """Remove columns containing only categorical, unique elements."""
+class StringFilter(Filter):
+    """Filter strings.
 
-    def __init__(self, threshold: float = 0.5):
-        """
+    Implement as filter to fit in with the rest of the
+    framework. All remaining columns are encoded in place
+    and used for selection.
+
+    """
+
+    def select(self, df: pd.DataFrame, target: Hashable) -> pd.DataFrame:
+        return df.select_dtypes(exclude=["string", "object"])
+
+
+# class UniqueFilter(Filter):
+#     """Remove columns containing only categorical, unique elements."""
+
+#     def __init__(self, threshold: float = 0.5):
+#         """
+
+#         Args:
+#             threshold: If this percentage of values is unique,
+#                 filter the column.
+
+#         """
+#         self._threshold = threshold
+
+#     def select(self, df: pd.DataFrame, target=None):
+#         uniques = list()
+#         for column in df:
+#             if df[column].dtype.name in ["string"]:
+#                 unique = df[column].nunique() / df[column].count()
+#                 if unique > self._threshold:
+#                     uniques.append(column)
+#         return df.drop(uniques, axis=1)
+
+
+class FreshFilter(Filter):
+    """Use the FRESH algorithm.
+
+    See [1]_ for more an introduction. As oppused to
+    the original work, we have four different cases.
+
+    * bool -> real
+    * real -> real
+    * bool -> cat
+    * real -> cat
+
+    .. [1] https://tsfresh.readthedocs.io/en/latest/text/feature_filtering.html
+
+    """
+
+    def __init__(self, q: float = 0.1) -> None:
+        super().__init__()
+        self._q = q
+
+    def select(self, df: pd.DataFrame, target: Hashable) -> pd.DataFrame:
+        """Perform FRESH filter."""
+
+        y = df[target]
+        i = df.columns.get_loc(target)
+        category = y.dtype == "category"
+
+        # generate list of p values
+        p_values = list()
+        for name, x in df.iteritems():
+            # skip the target
+            if name == target:
+                continue
+            # boolean feature
+            if x.dtype == "category":
+                if category:
+                    p_values.append(FreshFilter._test_bool_cat(x, y))
+                else:
+                    p_values.append(FreshFilter._test_bool_real(x, y))
+            # numerical feature
+            else:
+                if category:
+                    p_values.append(FreshFilter._test_real_cat(x, y))
+                else:
+                    p_values.append(FreshFilter._test_real_real(x, y))
+
+        # run Benjamini/Yekutieli procedure
+        reject, _, _, _ = multipletests(p_values, self._q, method="fdr_by")
+        print(reject)
+
+        # insert target
+        reject = np.insert(reject, i, False)
+
+        return df[df.columns[~reject]]
+
+    @staticmethod
+    def _test_bool_real(c1: pd.Series, c2: pd.Series) -> float:
+        """"""
+        values = np.unique(c2)
+        groups = [c1[c2 == v] for v in values]
+        _, p = ks_2samp(*groups)
+        return p
+
+    @staticmethod
+    def _test_real_real(c1: pd.Series, c2: pd.Series) -> float:
+        """Significance of real to real feature.
+
+        Similar to FRESH, we use the Kendall tau test.
 
         Args:
-            threshold: If this percentage of values is unique,
-                filter the column.
+            c1, c2: Two real series.
+
+        Returns:
+            p-value of the significance test.
 
         """
-        self._threshold = threshold
+        _, p = kendalltau(c1, c2)
+        return p
 
-    def select(self, df: pd.DataFrame, target=None):
-        uniques = list()
-        for column in df:
-            if df[column].dtype.name in ["object", "category"]:
-                unique = df[column].nunique() / df[column].count()
-                if unique > self._threshold:
-                    uniques.append(column)
-        return df.drop(uniques, axis=1)
+    @staticmethod
+    def _test_bool_cat(c1: pd.Series, c2: pd.Series) -> float:
+        """"""
+        _, table = crosstab(c1, c2)
+        _, p, _, _ = chi2_contingency(table)
+        return p
+
+    @staticmethod
+    def _test_real_cat(c1: pd.Series, c2: pd.Series) -> float:
+        """
+
+        Uses the Kruskal–Wallis H test if there are more than
+        two categories, else use the Kolmogorov-Smirnov test (as
+        in tsfresh).
+
+        Args:
+            c1: Real feature.
+            c2: Categorical target (can also be boolean).
+
+        Returns:
+            The p-value of the feature significance test.
+
+        """
+
+        values = np.unique(c2)
+        groups = [c1[c2 == v] for v in values]
+
+        if len(groups) == 2:
+            _, p = ks_2samp(*groups)
+        else:
+            _, p = kruskal(*groups)
+
+        return p
 
 
 # class CorrelationFilter:
@@ -213,7 +314,7 @@ class UniqueFilter:
 #         self._threshold = threshold
 #         self._data_size = data_size
 
-#     def predictions(self, df: pd.DataFrame, target: Label = None) -> pd.DataFrame:
+#     def predictions(self, df: pd.DataFrame, target: Hashable = None) -> pd.DataFrame:
 #         """Make predictions.
 
 #         Returns:
@@ -289,14 +390,8 @@ class UniqueFilter:
 default_pruner = StackedFilter(
     [
         MissingFilter(),
-        # GreedyMissingFilter(),
         ConstantFilter(),
         IdenticalFilter(),
     ]
 )
-default_filter = StackedFilter(
-    [
-        BijectiveFilter(),
-        UniqueFilter(),
-    ]
-)
+default_filter = BijectiveFilter()

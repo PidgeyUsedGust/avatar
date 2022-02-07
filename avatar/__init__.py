@@ -32,7 +32,7 @@ __all__ = ["Expander", "WranglingLanguage"]
 #         self._target = None
 #         self._selected = None
 
-#     def bend(self, df: pd.DataFrame, target: Label, iterations: int = 0):
+#     def bend(self, df: pd.DataFrame, target: Hashable, iterations: int = 0):
 #         """Bend dataframe.
 
 #         Args:
@@ -125,7 +125,7 @@ __all__ = ["Expander", "WranglingLanguage"]
 #     def language(self) -> WranglingLanguage:
 #         return self._language
 
-# # def bend(df: pd.DataFrame, target: Label = None) -> pd.DataFrame:
+# # def bend(df: pd.DataFrame, target: Hashable = None) -> pd.DataFrame:
 # #     """Automatically wrangle dataframe.
 
 # #     Args:
@@ -140,7 +140,7 @@ __all__ = ["Expander", "WranglingLanguage"]
 
 # def bend_custom(
 #     df: pd.DataFrame,
-#     target: Optional[Label] = None,
+#     target: Optional[Hashable] = None,
 #     language: WranglingLanguage = None,
 #     pruning: Filter = None,
 #     preselection: Filter = None,
@@ -199,7 +199,7 @@ __all__ = ["Expander", "WranglingLanguage"]
 
 # # def expand(
 # #     df: pd.DataFrame,
-# #     target: Label = None,
+# #     target: Hashable = None,
 # #     language: WranglingLanguage = None,
 # #     pruning: Filter = None
 # #     ) -> pd.DataFrame:

@@ -2,11 +2,9 @@ import json
 import inspect
 import pandas as pd
 from tqdm import tqdm
-from pandas._typing import Label
 from pathlib import Path
-from hashlib import sha1
 from collections import defaultdict
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Hashable
 from .settings import Settings
 from .language import WranglingLanguage, WranglingTransformation
 from .filter import (
@@ -15,7 +13,6 @@ from .filter import (
     IdenticalFilter,
     MissingFilter,
     ConstantFilter,
-    UniqueFilter,
 )
 
 UnpackedTransformation = Tuple[str, List[str]]
@@ -158,27 +155,24 @@ class Expander:
 
     """
 
-    def __init__(self, language: Optional[WranglingLanguage] = None):
+    def __init__(
+        self,
+        language: Optional[WranglingLanguage] = None,
+        prune: Optional[Filter] = None,
+    ):
         self.language = language or WranglingLanguage()
         self.tracker = Tracker()
         self.seen = set()
         self.done = set()
-        # pruning within each transformation
-        self.prune_transformation = StackedFilter(
-            [MissingFilter(0.9), ConstantFilter(0.9)]
+        self.prune = prune or StackedFilter(
+            (MissingFilter(), ConstantFilter(), IdenticalFilter())
         )
-        # pruning for whole dataframe
-        self.prune_full = IdenticalFilter()
 
-    def expand(self, df: pd.DataFrame, exclude: List[Label] = None) -> pd.DataFrame:
+    def expand(self, df: pd.DataFrame, exclude: List[Hashable] = None) -> pd.DataFrame:
         """Expand a dataframe.
 
         We expand the dataframe by getting all valid
         transformations, applying them and pruning.
-
-        Pruning happens hierarchically—first within a
-        transformation, then within a column and then
-        for the whole dataframe.
 
         """
         if exclude is None:
@@ -193,7 +187,7 @@ class Expander:
                 for transformation in self.language.get_transformations(column):
                     new_df = transformation.execute(df)
                     new_df = self.prune_seen(new_df)
-                    new_df = self.prune_transformation.select(new_df)
+                    # new_df = self.prune.select(new_df)
                     new_dfs.append(new_df)
                     # add to the map
                     for new_column in new_df:
@@ -201,18 +195,20 @@ class Expander:
                 # found some new columns
                 if len(new_dfs) > 0:
                     column_df = pd.concat(new_dfs, axis=1)
-                    column_df = self.prune_full.select(column_df)
+                    column_df = self.prune.select(column_df)
                     all_dfs.append(column_df)
             self.done.add(i)
         # combine dataframes and prune
         new_df = pd.concat(all_dfs, axis=1)
-        new_df = self.prune_full.select(new_df)
+        new_df = self.prune.select(new_df)
         # only keep those not pruned
         to_remove = set(all_map) - set(new_df.columns)
         for r in to_remove:
             if r in all_map:
                 del all_map[r]
+        # update stuff
         self.tracker.update(all_map)
+        self.language.reset()
         return new_df
 
     def prune_seen(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -233,7 +229,7 @@ class Expander:
 
 def _hash(s: pd.Series) -> int:
     """Compute unique hash of series."""
-    return sha1(s.values).hexdigest()
+    return hash(s.to_numpy().tobytes())
 
 
 def _unpack(t: WranglingTransformation) -> UnpackedTransformation:

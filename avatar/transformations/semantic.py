@@ -67,7 +67,7 @@ class NormaliseTimedelta(Transformation):
 class TimeFeatures(Transformation):
     """Date features."""
 
-    allowed = ["object", "category"]
+    allowed = ["string", "datetime64"]
     directives = [
         "%A",
         "%w",
@@ -90,7 +90,10 @@ class TimeFeatures(Transformation):
     ]
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
-        datetimes = column.apply(parse)
+        # ensure that it's a datetime
+        if column.dtype == "string":
+            datetimes = column.apply(parse)
+        # extract features
         features = list()
         for directive in self.directives:
             new = datetimes.apply(lambda x: x.strftime(directive)).rename(directive[1:])

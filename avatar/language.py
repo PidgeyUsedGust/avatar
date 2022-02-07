@@ -1,21 +1,18 @@
 """Simple transformation language."""
-import numpy as np
 import pandas as pd
-from typing import List, Optional
+from typing import List, Optional, Type
 from .transformations import *
 from .utilities import encode_name
-from .settings import Settings
 
 
 default_transformations = [
     Split,
-    SplitAlign,
+    SplitDummies,
     ExtractNumberPattern,
-    ExtractNumberK,
-    ExtractWord,
+    ExtractInteger,
     ExtractBoolean,
-    Numerical,
     WordToNumber,
+    Dummies,
 ]
 """List of all supported transformations."""
 
@@ -99,7 +96,7 @@ class WranglingProgram:
 class WranglingLanguage:
     """Wrangling language."""
 
-    def __init__(self, transformations: Optional[List[Transformation]] = None):
+    def __init__(self, transformations: Optional[List[Type[Transformation]]] = None):
         """
 
         Arguments:
@@ -128,11 +125,20 @@ class WranglingLanguage:
                     )
         return transformations
 
+    def reset(self) -> None:
+        """Reset all transformation caches."""
+        for transformation in self.transformations:
+            if hasattr(transformation, "_cache"):
+                transformation._cache = dict()
+
+    def __str__(self) -> str:
+        return ", ".join(map(lambda t: str(t.__name__), self.transformations))
+
     # def transformations(
     #     self,
     #     df: pd.DataFrame,
-    #     target: Label = None,
-    #     exclude: Optional[List[Label]] = None,
+    #     target: Hashable = None,
+    #     exclude: Optional[List[Hashable]] = None,
     # ) -> List[Tuple[str, Transformation]]:
     #     """Get allowed arguments for wrangling transformation.
 
@@ -166,8 +172,8 @@ class WranglingLanguage:
     # def expand(
     #     self,
     #     df: pd.DataFrame,
-    #     exclude: Optional[List[Label]] = None,
-    #     target: Label = None,
+    #     exclude: Optional[List[Hashable]] = None,
+    #     target: Hashable = None,
     # ) -> pd.DataFrame:
     #     """Expand dataframe with all transformations.
 
@@ -194,7 +200,7 @@ class WranglingLanguage:
     #     return pd.concat(dataframes, axis=1).replace("", np.nan)
 
     # def make_program(
-    #     self, df: pd.DataFrame, features: List[Label]
+    #     self, df: pd.DataFrame, features: List[Hashable]
     # ) -> "WranglingProgram":
     #     """Build program from selected features.
 

@@ -10,14 +10,14 @@ __all__ = [
     "Transformation",
     # string
     "Split",
-    "SplitAlign",
+    "SplitDummies",
     "ExtractNumberPattern",
-    "ExtractNumberK",
-    "ExtractWord",
+    "ExtractInteger",
     "ExtractBoolean",
-    "Lowercase",
     "WordToNumber",
-    "Numerical",
+    # Encoding
+    "Dummies",
+    # "Numerical",
     "TimeFeatures",
     "Drop",
 ]

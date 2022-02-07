@@ -1,109 +1,226 @@
+"""Evaluating of a set of features."""
+import shap
 import pandas as pd
 import numpy as np
-from pandas._typing import Label
-from collections import defaultdict
-from typing import Dict, List, Tuple
-from sklearn.base import is_classifier
-from tqdm import tqdm
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Iterable, List, Sequence, Union, Hashable
+from sklearn.preprocessing import normalize
 from sklearn.model_selection import (
-    cross_val_score,
+    BaseCrossValidator,
     ShuffleSplit,
     StratifiedShuffleSplit,
 )
-from .supervised import _shuffle_encode
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.base import is_classifier
+from sklearn.inspection import permutation_importance
 from .settings import Settings
+from .utilities import estimator_to_string
 
 
-class RankingEvaluator:
-    """Use ranking to select features and evaluate."""
+Splitter = Union[BaseCrossValidator, ShuffleSplit, StratifiedShuffleSplit]
+Parameter = Union[str, Union[str, "Parameter"]]
+
+
+class Judge(ABC):
+    """Base game judge."""
+
+    @abstractmethod
+    def evaluate(self, model, X, y) -> np.ndarray:
+        pass
+
+    def __str__(self) -> str:
+        return self.__class__.__name__[:-5]
+
+
+class DefaultJudge(Judge):
+    """Use the model default."""
+
+    def evaluate(self, model, X, y) -> np.ndarray:
+        return model.feature_importances_
+
+
+class PermutationJudge(Judge):
+    """Use permutation feature importance."""
+
+    def __init__(self, n_repeats: int = 5) -> None:
+        self.n_repeats = n_repeats
+
+    def evaluate(self, model, X, y) -> np.ndarray:
+        return permutation_importance(
+            model, X, y, n_repeats=self.n_repeats, n_jobs=Settings.n_jobs
+        ).importances_mean
+
+
+class SHAPJudge(Judge):
+    """Use SHAP values."""
+
+    def evaluate(self, model, X, y) -> np.ndarray:
+        values = np.abs(np.array(shap.TreeExplainer(model).shap_values(X)))
+        # if nominal target, sum across target
+        if len(values.shape) == 3:
+            values = np.sum(values, axis=0)
+        # normalise to [0, 1]
+        avg_shap = np.mean(values, axis=0)
+        nrm_shap = np.squeeze(normalize(avg_shap.reshape(1, -1), norm="l1"))
+        return nrm_shap
+
+
+class Result:
+    """Game result."""
+
+    def __init__(self, team: Sequence[Hashable]) -> None:
+        self._team = team
+        self._performances = list()
+        self._scores = list()
+
+    def update(self, performance: np.ndarray, score: float) -> None:
+        self._performances.append(performance)
+        self._scores.append(score)
+
+    @property
+    def performances(self) -> Dict[Hashable, float]:
+        """Get performances of players."""
+        # make into numpy
+        performances = np.vstack(self._performances)
+        scores = np.array(self._scores)
+        # scale performances by scores with broadcasting
+        scaled = performances * (1 + scores)[:, None]
+        # compute average
+        avg = np.mean(scaled, axis=0)
+        std = np.std(scaled, axis=0)
+        # return scaled performance
+        return {player: max(0, avg[i] - std[i]) for i, player in enumerate(self._team)}
+
+    @property
+    def score(self) -> float:
+        """Get average score."""
+        return np.mean(self._scores)
+
+    @property
+    def json(self) -> Dict[str, Any]:
+        return {"score": self.score, "performances": self.performances}
+
+
+class Game:
+    """Represents a game that teams can play."""
 
     def __init__(
-        self, estimator, max_features: int = 32, folds: int = 5, samples: int = 5000
+        self, estimator=None, judge: Judge = None, rounds: int = 1, samples: int = 1000
     ) -> None:
+        """
+
+        Args:
+            estimator: Model used.
+
+        """
         self.estimator = estimator
-        self.max_features = max_features
-        self.folds = folds
-        self.samples = 5000
-        self.scores = dict()
+        self.judge = judge or DefaultJudge()
+        self.rounds = rounds
+        self.samples = samples
+        self.data = None
+        self.target = None
+        self.splitter = None
+        self.played: int = 0
 
-    def fit(self, data: pd.DataFrame, target: Label, ranking: Dict[Label, float]):
-        ranked = sorted(ranking, key=lambda x: ranking[x], reverse=True)
-        scores = dict()
-        for i in range(self.folds):
-            shuffled = _shuffle_encode(data)
-            for n in tqdm(range(1, self.max_features), disable=not Settings.verbose):
-                X = shuffled[ranked[:n]]
-                s = np.mean(
-                    cross_val_score(
-                        self.estimator, X, shuffled[target], cv=self.splitter(data)
-                    )
-                )
-                if i == 0:
-                    scores[n] = {"scores": [s], "features": ranked[:n]}
-                else:
-                    scores[n]["scores"].append(s)
-        self.scores = scores
+    def initialise(self, data: pd.DataFrame, target: Hashable) -> None:
+        """Initialise game on some data.
 
-    def splitter(self, data: pd.DataFrame):
-        """Return a splitter with."""
-        n = min(len(data), self.samples)
-        t = int(n // 10)
+        Args:
+            data: A dataframe that does not contain string
+                or object columns.
+            target: Column to be predicted.
+
+        """
+
+        # make sure that data is encoded
+        self.data = encode(data)
+        self.target = target
+
+        # set the estimator
+        if self.estimator is None:
+            self.estimator = default_estimator(data, target)
+
+        # set the splitter
         if is_classifier(self.estimator):
             splitter = StratifiedShuffleSplit
         else:
             splitter = ShuffleSplit
-        return splitter(n_splits=5, test_size=t, train_size=n - t)
+        n = min(self.samples, len(data))
+        t = n // 10
+        self.splitter = splitter(n_splits=self.rounds, train_size=n - t, test_size=t)
 
-    # def select(self) -> Tuple[List[Label], float]:
-    #     best = max(self.scores, key=lambda n: self.scores[n]["score"])
-    #     return self.scores[best]
+        # reset number of times played
+        self.played = 0
+
+    def play(self, team: Iterable[Hashable]) -> Result:
+        """Let a team play the games and aggregate performance.
+
+        Returns:
+            A `Result` object.
+
+        """
+
+        # initialise result
+        result = Result(team)
+
+        # get data for this team
+        X = self.data[list(team)]
+        y = self.data[self.target][X.index]
+
+        # play our the rounds
+        for train, test in self.splitter.split(X, y):
+            # get data
+            Xtr, Xte = X.iloc[train], X.iloc[test]
+            ytr, yte = y.iloc[train], y.iloc[test]
+            # fit model
+            self.estimator.fit(Xtr, ytr)
+            # get performance and score on training data
+            score = max(0, self.estimator.score(Xte, yte))
+            perfs = self.judge.evaluate(self.estimator, Xte, yte)
+            # update result
+            result.update(perfs, score)
+
+        # increase count
+        self.played += 1
+
+        # map back to players
+        return result
+
+    @property
+    def parameters(self) -> Parameter:
+        return {
+            "estimator": estimator_to_string(self.estimator),
+            "judge": self.judge.__class__.__name__,
+            "rounds": self.rounds,
+            "samples": self.samples,
+        }
+
+    def __str__(self) -> str:
+        return "Game(e={}, j={}, r={}, s={})".format(
+            estimator_to_string(self.estimator), self.judge, self.rounds, self.samples
+        )
 
 
-# class DatasetEvaluator:
-#     """Dataset evaluator."""
+def default_estimator(data: pd.DataFrame, target: Hashable):
+    """Get default estimator."""
+    if data[target].dtype.name in ["object", "string", "category"]:
+        return DecisionTreeClassifier(max_depth=4)
+    else:
+        return DecisionTreeRegressor(max_depth=4)
 
-#     def __init__(self, n_folds: int = 5, **configuration):
-#         self._n_folds = n_folds
-#         self._m_args = dict()
-#         self._m_args.update(configuration)
 
-#     def fit(self, df: pd.DataFrame, target: Optional[Label] = None):
-#         # prepare data
-#         data, nominal = to_mercs(df)
-#         self._data = data.values
-#         self._nominal = nominal
-#         self._columns = df.columns
-#         self._target = target
-#         self._target_index = df.columns.get_loc(target)
+def encode(df: pd.DataFrame) -> pd.DataFrame:
+    """Encode the dataframe for learning.
 
-#     def evaluate(self, get_importances=False):
-#         """Evaluate on folds. """
-#         # generate a code
-#         code = self._code()
-#         # run the train, test splits.
-#         accuracies = list()
-#         importances = list()
-#         for train, test in self._folds():
-#             test = np.nan_to_num(test)
-#             # learn model
-#             model = Mercs(**self._m_args)
-#             model.fit(train, nominal_attributes=self._nominal, m_codes=code)
-#             if get_importances:
-#                 with warnings.catch_warnings():
-#                     warnings.simplefilter("ignore")
-#                     model.avatar(train, keep_abs_shap=True, check_additivity=False)
-#                     importances.append(np.sum(model.nrm_shaps, axis=0))
-#             # make prediction for each model
-#             for m_code in model.m_codes:
-#                 prediction = model.predict(test, q_code=m_code)
-#                 truth = test[:, m_code == 1][:, 0]
-#                 # classification
-#                 if self._target_index in self._nominal:
-#                     accuracy = accuracy_score(truth, prediction)
-#                 # or regression
-#                 else:
-#                     accuracy = mean_squared_error(truth, prediction)
-#                 accuracies.append(accuracy)
-#         if get_importances:
-#             return np.mean(accuracies), np.mean(importances, axis=0)
-#         return np.mean(accuracies)
+    Returns:
+        A dataframe containing only numerical values.
+
+    """
+    df = df.copy()
+    for column in df:
+        if df[column].dtype in ["category", "object", "string"]:
+            df[column] = df[column].factorize()[0]
+        if df[column].dtype == "bool":
+            df[column] = df[column].astype(int)
+    df = df.fillna(0)
+    return df

@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import OneHotEncoder, normalize
 from trueskill import Rating, rate, quality
-from pandas._typing import Label
+from pandas._typing import Hashable
 from abc import ABC, abstractmethod
 from typing import List, Union, Callable, Tuple, Dict, Protocol
 from collections import defaultdict
@@ -16,7 +16,7 @@ from .utilities import encode_label, encode_onehot
 class Task:
     """A prediction task."""
 
-    def __init__(self, X: List[Label], y: Label):
+    def __init__(self, X: List[Hashable], y: Hashable):
         self.X = X
         self.y = y
 

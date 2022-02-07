@@ -4,12 +4,11 @@ from typing import List, Tuple, Union
 from .base import Transformation
 
 
-class OneHot(Transformation):
+class Dummies(Transformation):
     """One hot encode a column."""
 
-    allowed = ["object", "int64", "category"]
-
-    threshold: Union[float, int] = 20
+    allowed = ["string", "int"]
+    max_categories: Union[float, int] = 20
     """Maximal number of categories."""
 
     def __call__(self, column: pd.Series) -> pd.DataFrame:
@@ -18,9 +17,8 @@ class OneHot(Transformation):
     @classmethod
     def arguments(cls, column: pd.Series) -> List[Tuple[()]]:
         """Require at least three and at most most `threshold` categories"""
-        threshold = len(column) * cls.threshold if cls.threshold < 1 else cls.threshold
         unique = column.nunique()
-        if unique < threshold and unique > 2:
+        if unique <= cls.max_categories and unique > 2:
             return [()]
         return []
 
@@ -29,7 +27,6 @@ class NaN(Transformation):
     """Encode a new value as NaN."""
 
     allowed = ["object", "category"]
-
     trigger = [
         "unknown",
         "unknwon",

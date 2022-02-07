@@ -1,4 +1,10 @@
 """Evaluate the rankings."""
+
+"""
+
+Run feature ranking.
+
+"""
 import json
 import argparse
 from pathlib import Path
@@ -17,6 +23,82 @@ def read(file: Path):
     else:
         data[meta["target"]] = data[meta["target"]].astype("float")
     return data, meta
+
+
+# def get_estimator(classifier, classification: bool = True):
+#     """Turn string into an estimator.
+
+#     Args:
+#         classifier: String representation of classifier.
+#         classification: Whether to get a classifier or a regressor.
+
+#     Returns:
+#         Classifier object.
+
+#     """
+#     name, arguments = classifier.strip(")").split("(")
+#     # get right task
+#     if classification:
+#         name = name.replace("Regressor", "Classifier")
+#     else:
+#         name = name.replace("Classifier", "Regressor")
+#     # try to load the module
+#     for module in ["sklearn.tree", "sklearn.ensemble", "xgboost"]:
+#         try:
+#             m = importlib.import_module(module)
+#             try:
+#                 clf = getattr(m, name)
+#                 break
+#             except AttributeError:
+#                 pass
+#         except ImportError:
+#             pass
+#     # parse arguments
+#     arg = eval("dict({})".format(arguments))
+#     # hack for XGB
+#     if "XGB" in name:
+#         arg["use_label_encoder"] = False
+#         arg["verbosity"] = 0
+#     return clf(**arg)
+
+
+# def get_tournament(
+#     configuration: Dict[str, Union[str, int]], classification: bool
+# ) -> Tournament:
+#     # parse judge
+#     if "shap" in configuration["judge"].lower():
+#         judge = SHAPJudge()
+#     elif "permutation" in configuration["judge"].lower():
+#         judge = PermutationJudge()
+#     else:
+#         judge = DefaultJudge()
+#     # parse skill
+#     if "true" in configuration["judge"].lower():
+#         pool = TruePool()
+#     else:
+#         pool = AveragePool()
+#     # make into function
+#     if isinstance(configuration["team"], str):
+#         team = eval(configuration["team"])
+#     else:
+#         team = configuration["team"]
+#     # make estimator
+#     estimator = get_estimator(configuration["estimator"], classification=classification)
+#     # initialise game
+#     game = Game(
+#         estimator=estimator,
+#         judge=judge,
+#         rounds=configuration["rounds"],
+#         samples=configuration["samples"],
+#     )
+#     # make and return tournament
+#     return Tournament(
+#         game=game,
+#         pool=pool,
+#         games=configuration["games"],
+#         exploration=configuration["exploration"],
+#         size=team,
+#     )
 
 
 def get_estimator(task: str):
@@ -110,8 +192,5 @@ if __name__ == "__main__":
         for file in location.glob("*.json"):
             configurations.append(file)
 
-    for experiment in tqdm.tqdm(list(experiments), desc="Experiment", position=0):
-        for configuration in tqdm.tqdm(
-            configurations, desc="Configuration", position=1
-        ):
-            run(experiment, configuration.stem)
+    for configuration in tqdm.tqdm(configurations, desc="Configuration", position=0):
+        run(experiment, configuration.stem)

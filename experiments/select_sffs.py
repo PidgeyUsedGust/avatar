@@ -3,6 +3,7 @@
 Run feature ranking.
 
 """
+from avatar.select import ChunkedSFFSelector, Selector
 import sys
 import time
 import json
@@ -64,9 +65,9 @@ def get_estimator(classifier, classification: bool = True):
     return clf(**arg)
 
 
-def get_tournament(
+def get_selector(
     configuration: Dict[str, Union[str, int]], classification: bool
-) -> Tournament:
+) -> Selector:
     # parse judge
     if "shap" in configuration["judge"].lower():
         judge = SHAPJudge()
@@ -74,16 +75,6 @@ def get_tournament(
         judge = PermutationJudge()
     else:
         judge = DefaultJudge()
-    # parse skill
-    if "true" in configuration["judge"].lower():
-        pool = TruePool()
-    else:
-        pool = AveragePool()
-    # make into function
-    if isinstance(configuration["team"], str):
-        team = eval(configuration["team"])
-    else:
-        team = configuration["team"]
     # make estimator
     estimator = get_estimator(configuration["estimator"], classification=classification)
     # initialise game
@@ -93,13 +84,12 @@ def get_tournament(
         rounds=configuration["rounds"],
         samples=configuration["samples"],
     )
-    # make and return tournament
-    return Tournament(
-        game=game,
-        pool=pool,
+    # make and return selector
+    return ChunkedSFFSelector(
+        game,
         games=configuration["games"],
-        exploration=configuration["exploration"],
-        size=team,
+        chunks=configuration["chunks"],
+        add=configuration["add"],
     )
 
 
@@ -110,9 +100,10 @@ def run(experiment_file: Path, configuration_file: Path, force: bool = False):
         experiment_file.parent.parent.parent
         / "results"
         / experiment_file.parent.name
-        / "rankings"
+        / "selections"
+        / "sffs"
     )
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(exist_ok=True, parents=True)
     out_name = "{}.json".format(configuration_file.stem)
     if (out_dir / out_name).exists() and not force:
         return
@@ -124,28 +115,21 @@ def run(experiment_file: Path, configuration_file: Path, force: bool = False):
     data, meta = read(experiment_file)
 
     # initialise
-    tournament = get_tournament(configuration, meta["task"] == "classification")
-    tournament.initialise(data, meta["target"])
+    selector = get_selector(configuration, meta["task"] == "classification")
 
     # play
     start = time.time()
-    tournament.play()
+    selector.fit(data, meta["target"])
     end = time.time()
 
+    # collect result
     result = {
-        "rankings": tournament.results,
+        "selected": selector.select(),
         "time": end - start,
         "parameters": configuration,
+        "results": list(selector._results.items()),
     }
 
-    out_dir = (
-        experiment_file.parent.parent.parent
-        / "results"
-        / experiment_file.parent.name
-        / "rankings"
-    )
-    out_dir.mkdir(exist_ok=True)
-    out_name = "{}.json".format(configuration_file.stem)
     with open(out_dir / out_name, "w") as f:
         json.dump(result, f, indent=2)
 

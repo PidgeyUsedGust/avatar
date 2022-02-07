@@ -1,10 +1,13 @@
+import pandas as pd
+from pathlib import Path
 from avatar.utilities import *
 
 
-def test_substrings():
-
-    print(get_substrings("-"))
-    print(get_substrings(".-'"))
+def test_prepare():
+    nba = pd.read_csv(Path(__file__).parent / "data/nba.csv")
+    prepared = prepare(nba)
+    print(prepared)
+    print(prepared.dtypes)
 
 
 def test_encode_name():
@@ -14,6 +17,5 @@ def test_encode_name():
 
 
 if __name__ == "__main__":
-
-    test_substrings()
     test_encode_name()
+    test_prepare()
