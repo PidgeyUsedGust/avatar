@@ -9,6 +9,7 @@ from .settings import Settings
 from .language import WranglingLanguage, WranglingTransformation
 from .filter import (
     Filter,
+    InfinityFilter,
     StackedFilter,
     IdenticalFilter,
     MissingFilter,
@@ -165,7 +166,7 @@ class Expander:
         self.seen = set()
         self.done = set()
         self.prune = prune or StackedFilter(
-            (MissingFilter(), ConstantFilter(), IdenticalFilter())
+            (MissingFilter(), ConstantFilter(), IdenticalFilter(), InfinityFilter())
         )
 
     def expand(self, df: pd.DataFrame, exclude: List[Hashable] = None) -> pd.DataFrame:
@@ -180,7 +181,7 @@ class Expander:
         all_dfs = [df]
         all_map = dict()
         for i, column in tqdm(
-            df.iteritems(), total=len(df.columns), disable=not Settings.verbose
+            df.items(), total=len(df.columns), disable=not Settings.verbose
         ):
             if i not in exclude and i not in self.done:
                 new_dfs = list()
@@ -214,7 +215,7 @@ class Expander:
     def prune_seen(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prune columns that have been seen."""
         to_remove = set()
-        for i, column in df.iteritems():
+        for i, column in df.items():
             h = _hash(column)
             if h in self.seen:
                 to_remove.add(i)

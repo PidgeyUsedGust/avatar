@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterable, List, Sequence, Union, Hashable
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import normalize, robust_scale
 from sklearn.model_selection import (
     BaseCrossValidator,
     ShuffleSplit,
@@ -133,7 +133,7 @@ class Game:
         """
 
         # make sure that data is encoded
-        self.data = encode(data)
+        self.data = encode(data, target)
         self.target = target
 
         # set the estimator
@@ -201,15 +201,15 @@ class Game:
         )
 
 
-def default_estimator(data: pd.DataFrame, target: Hashable):
+def default_estimator(data: pd.DataFrame, target: Hashable, depth: int = 4):
     """Get default estimator."""
     if data[target].dtype.name in ["object", "string", "category"]:
-        return DecisionTreeClassifier(max_depth=4)
+        return DecisionTreeClassifier(max_depth=depth)
     else:
-        return DecisionTreeRegressor(max_depth=4)
+        return DecisionTreeRegressor(max_depth=depth)
 
 
-def encode(df: pd.DataFrame) -> pd.DataFrame:
+def encode(df: pd.DataFrame, target: Hashable) -> pd.DataFrame:
     """Encode the dataframe for learning.
 
     Returns:
@@ -218,9 +218,13 @@ def encode(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     for column in df:
-        if df[column].dtype in ["category", "object", "string"]:
+        if column == target and df[column].dtype == "float64":
+            df[column] = np.sign(df[column]) * np.log(np.abs(df[column]) + 1)
+        elif df[column].dtype in ["category", "object", "string"]:
             df[column] = df[column].factorize()[0]
-        if df[column].dtype == "bool":
+        elif df[column].dtype == "bool":
             df[column] = df[column].astype(int)
+        elif df[column].dtype in ["float64"]:
+            df[column] = np.sign(df[column]) * np.log(np.abs(df[column]) + 1)
     df = df.fillna(0)
     return df

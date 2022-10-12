@@ -1,11 +1,10 @@
-import shap
 import random
 import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Iterable, Union, Hashable
 from operator import itemgetter
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from trueskill import Rating, rate_1vs1
 from sklearn.model_selection import (
     BaseCrossValidator,
@@ -23,18 +22,19 @@ Parameters = Union[str, Dict[str, "Parameters"]]
 class Pool(ABC):
     """Pool of players."""
 
-    def __init__(self) -> None:
+    def __init__(self, burn: bool = False) -> None:
         """Initialise.
 
         Args:
             players: A list of player names.
 
         """
-        self._players: List[Hashable] = list()
+        self.players: List[Hashable] = list()
+        self.burn = burn
 
     def initialise(self, players: Iterable[Hashable]) -> None:
         """Initialise the pool with players."""
-        self._players = list(players)
+        self.players = list(players)
 
     def sample(self, size: int = 16, exploration: float = 1.0) -> List[Hashable]:
         """Sample a team.
@@ -51,7 +51,7 @@ class Pool(ABC):
 
         """
         # get players and weights
-        p, w = map(list, zip(*((p, self.rating(p) + 0.001) for p in self._players)))
+        p, w = map(list, zip(*((p, self.rating(p) + 0.001) for p in self.players)))
         # build team
         team = list()
         while len(team) < size:
@@ -85,7 +85,7 @@ class Pool(ABC):
 
     def ratings(self) -> Dict[Hashable, float]:
         """Get the ratings of all players."""
-        return {player: self.rating(player) for player in self._players}
+        return {player: self.rating(player) for player in self.players}
 
     def __str__(self) -> str:
         return self.__class__.__name__[:-4]
@@ -122,7 +122,7 @@ class TruePool(Pool):
 
     def initialise(self, players: Iterable[Hashable]) -> None:
         super().initialise(players)
-        self._players = {player: Rating() for player in players}
+        self.players = {player: Rating() for player in players}
 
     def update(self, result: Result):
         # sort from high to low performance
@@ -130,17 +130,17 @@ class TruePool(Pool):
         for i, (n1, s1) in enumerate(performances[:-1]):
             n2, s2 = performances[i + 1]
             # get players
-            p1: Rating = self._players[n1]
-            p2: Rating = self._players[n2]
+            p1: Rating = self.players[n1]
+            p2: Rating = self.players[n2]
             # get updated ratings
             r1, r2 = rate_1vs1(p1, p2, drawn=(s1 == s2))
             # update skill objects
-            self._players[n1] = r1
-            self._players[n2] = r2
+            self.players[n1] = r1
+            self.players[n2] = r2
 
     def rating(self, player: Hashable) -> float:
         """Compute rating."""
-        return self._players[player].mu - self._players[player].sigma
+        return self.players[player].mu - self.players[player].sigma
 
 
 class Tournament:
@@ -173,6 +173,7 @@ class Tournament:
         self.data = None
         self.target = None
         self.current = 0
+        self.results: list[Result] = list()
 
     def initialise(self, data: pd.DataFrame, target: Hashable) -> None:
         """Initialise tournament with data and target."""
@@ -184,7 +185,7 @@ class Tournament:
 
     def play(self):
         """Play the tournament."""
-        for _ in tqdm(range(self.games), disable=not Settings.verbose):
+        for _ in tqdm(range(self.games), disable=not Settings.verbose, leave=False):
             self.round()
             self.current += 1
 
@@ -192,17 +193,18 @@ class Tournament:
         """Play one round."""
         team = self.pool.sample(self.teamsize, self.exploration)
         perf = self.game.play(team)
+        self.results.append(perf)
         self.pool.update(perf)
 
     @property
     def teamsize(self) -> int:
         if isinstance(self.size, int):
             return self.size
-        elif isinstance(self.size, function):
+        elif callable(self.size):
             return self.size(len(self.data.columns))
 
     @property
-    def results(self) -> Dict[Hashable, float]:
+    def ratings(self) -> Dict[Hashable, float]:
         score = self.pool.ratings()
         total = sum(score.values())
         if total > 0:

@@ -7,6 +7,7 @@ Two types of selection are performed.
 
 """
 from functools import cached_property
+from avatar.ranking import Tournament
 from avatar.utilities import divide
 import random
 import numpy as np
@@ -25,7 +26,7 @@ from typing import (
 )
 from math import ceil
 from tqdm import tqdm
-from .evaluate import Game
+from .evaluate import Game, SHAPJudge, default_estimator
 
 
 np.random.seed(1337)
@@ -44,9 +45,7 @@ class Selector:
                 play in total.
 
         """
-        if evaluator is None:
-            evaluator = Game(rounds=4)
-        self._evaluator = evaluator
+        self._evaluator = evaluator or Game(rounds=4)
         self._games = games
         self._results = dict()
 
@@ -92,6 +91,42 @@ class Selector:
     def select(self) -> List[Hashable]:
         if len(self._results) > 0:
             return list(max(self._results, key=self._results.get))
+
+
+class TournamentSelector(Selector):
+    """Use tournament."""
+
+    def __init__(self, tournament: Tournament, features: int = 32):
+        """
+
+        Args:
+            tournament: Tournament used to rank games.
+            features: Range of number of features to explore in ranking.
+
+        """
+        super().__init__(tournament.game, tournament.games)
+        self.tournament = tournament
+        self.features = features
+
+    def run(self):
+        """Perform ranking."""
+        # perform ranking
+        self.tournament.initialise(self._df, self._target)
+        self.tournament.play()
+        # initialise final evaluator
+        self._evaluator.initialise(self._df, self._target)
+        self._evaluator.estimator = default_estimator(self._df, self._target, 8)
+        # get best features
+        top = sorted(
+            self.tournament.results, key=self.tournament.results.get, reverse=True
+        )
+        scores = [self._evaluator.play(top[:n]) for n in range(1, 1 + self._games)]
+        for top, score in zip(top, scores):
+            print(top, score.score)
+
+    @property
+    def required_depth(self) -> int:
+        return ceil(np.log2(self._games))
 
 
 class ChunkedSFFSelector(Selector):
@@ -355,7 +390,7 @@ class CHCGASelector(Selector):
             return None
         return frozenset(c1), frozenset(c2)
 
-    def mutate(self, i: Individual, p: float = 0.4) -> Individual:
+    def mutate(self, i: Individual, p: float = 0.1) -> Individual:
         """Mutation.
 
         Args:
@@ -383,180 +418,180 @@ class CHCGASelector(Selector):
         return list(set(self._df.columns) - {self._target})
 
 
-class Population:
-    """Population of individuals."""
+# class Population:
+#     """Population of individuals."""
 
-    def __init__(
-        self, population: List["Individual"], fitness: Callable[["Individual"], float]
-    ):
-        """
+#     def __init__(
+#         self, population: List["Individual"], fitness: Callable[["Individual"], float]
+#     ):
+#         """
 
-        Args:
-            population: Initial population.
-            fitness: Fitness function.
+#         Args:
+#             population: Initial population.
+#             fitness: Fitness function.
 
-        """
-        self._population = {
-            individual: fitness(individual.genome) for individual in population
-        }
-        self._n = len(self._population)
-        self._fitness = fitness
-        self._threshold_base = len(population[0]) // 4
-        self._threshold = self._threshold_base
+#         """
+#         self._population = {
+#             individual: fitness(individual.genome) for individual in population
+#         }
+#         self._n = len(self._population)
+#         self._fitness = fitness
+#         self._threshold_base = len(population[0]) // 4
+#         self._threshold = self._threshold_base
 
-    def evolve(self):
-        """Evolve to next generation.
+#     def evolve(self):
+#         """Evolve to next generation.
 
-        Args:
-            evaluate: Function that evaluates an individual.
+#         Args:
+#             evaluate: Function that evaluates an individual.
 
-        """
+#         """
 
-        # sample current population without replacement by shuffling
-        # and popping two by two.
-        shuffled = random.sample(list(self._population), len(self._population))
+#         # sample current population without replacement by shuffling
+#         # and popping two by two.
+#         shuffled = random.sample(list(self._population), len(self._population))
 
-        # generate children
-        children = list()
-        while len(shuffled) > 0:
-            p1 = shuffled.pop()
-            p2 = shuffled.pop()
-            offspring = p1.cross(p2, self._threshold)
-            if offspring is not None:
-                children.extend(offspring)
+#         # generate children
+#         children = list()
+#         while len(shuffled) > 0:
+#             p1 = shuffled.pop()
+#             p2 = shuffled.pop()
+#             offspring = p1.cross(p2, self._threshold)
+#             if offspring is not None:
+#                 children.extend(offspring)
 
-        # drop threshold if no offspring
-        if len(children) == 0:
-            self._threshold = self._threshold - 1
+#         # drop threshold if no offspring
+#         if len(children) == 0:
+#             self._threshold = self._threshold - 1
 
-            # threshold drops to 0, perform cataclysmic mutation
-            if self._threshold == 0 or self.has_stagnated():
-                best = self.best()
-                children = [best]
-                while len(children) < self._n:
-                    children.append(best.mutate(0.4))
-                # reset the threshold
-                self._threshold = self._threshold_base
+#             # threshold drops to 0, perform cataclysmic mutation
+#             if self._threshold == 0 or self.has_stagnated():
+#                 best = self.best()
+#                 children = [best]
+#                 while len(children) < self._n:
+#                     children.append(best.mutate(0.4))
+#                 # reset the threshold
+#                 self._threshold = self._threshold_base
 
-        # collect all individuals of current iteration and
-        # evaluate them
-        combined = {child: self._fitness(child.genome) for child in children}
-        combined.update(self._population)
+#         # collect all individuals of current iteration and
+#         # evaluate them
+#         combined = {child: self._fitness(child.genome) for child in children}
+#         combined.update(self._population)
 
-        # elitist selection
-        ranked = sorted(combined, key=combined.get, reverse=True)
-        elites = ranked[: self._n]
+#         # elitist selection
+#         ranked = sorted(combined, key=combined.get, reverse=True)
+#         elites = ranked[: self._n]
 
-        # replace current population
-        self._population = {elite: combined[elite] for elite in elites}
+#         # replace current population
+#         self._population = {elite: combined[elite] for elite in elites}
 
-    def evolve_n(self, n: int):
-        """Evolve `n` times."""
-        for _ in range(n):
-            self.evolve()
+#     def evolve_n(self, n: int):
+#         """Evolve `n` times."""
+#         for _ in range(n):
+#             self.evolve()
 
-    def fitness(self, individual: "Individual"):
-        return self._population[individual]
+#     def fitness(self, individual: "Individual"):
+#         return self._population[individual]
 
-    def best(self) -> "Individual":
-        return max(self._population, key=self._population.get)
+#     def best(self) -> "Individual":
+#         return max(self._population, key=self._population.get)
 
-    def individuals(self) -> List["Individual"]:
-        return list(self._population)
+#     def individuals(self) -> List["Individual"]:
+#         return list(self._population)
 
-    def has_stagnated(self) -> bool:
-        """Check if all elements are equal."""
-        iterator = iter(self._population)
-        try:
-            first = next(iterator)
-        except StopIteration:
-            return True
-        return all(np.equal(first.genome, rest.genome).all() for rest in iterator)
+#     def has_stagnated(self) -> bool:
+#         """Check if all elements are equal."""
+#         iterator = iter(self._population)
+#         try:
+#             first = next(iterator)
+#         except StopIteration:
+#             return True
+#         return all(np.equal(first.genome, rest.genome).all() for rest in iterator)
 
-    @property
-    def n(self):
-        return self._n
+#     @property
+#     def n(self):
+#         return self._n
 
-    def __str__(self):
-        return "\n".join("{} {}".format(i, s) for i, s in self._population.items())
+#     def __str__(self):
+#         return "\n".join("{} {}".format(i, s) for i, s in self._population.items())
 
 
-class Individual:
-    def __init__(self, genome: Set[Hashable]):
-        self._genome = genome
+# class Individual:
+#     def __init__(self, genome: Set[Hashable]):
+#         self._genome = genome
 
-    def cross(
-        self, other: "Individual", threshold: int
-    ) -> Optional[Tuple["Individual"]]:
-        """Perform Half-Uniform Crossover (HUX).
+#     def cross(
+#         self, other: "Individual", threshold: int
+#     ) -> Optional[Tuple["Individual"]]:
+#         """Perform Half-Uniform Crossover (HUX).
 
-        Crosses half of the non-matching alleles.
+#         Crosses half of the non-matching alleles.
 
-        Args:
-            threshold: Minimal number of different alleles
-                in order to allow crossing two individuals.
+#         Args:
+#             threshold: Minimal number of different alleles
+#                 in order to allow crossing two individuals.
 
-        Returns:
-            If at least threshold alleles are different,
-            return a tuple of offspring. Else, return None.
+#         Returns:
+#             If at least threshold alleles are different,
+#             return a tuple of offspring. Else, return None.
 
-        """
-        assert threshold < len(self.genome)
-        assert len(self.genome) == len(other.genome)
-        # get locations where differ
-        (different,) = np.where(self.genome != other.genome)
-        # don't cross over
-        if len(different) // 2 < threshold:
-            return None
-        # select chromosomes to swamp
-        indices = np.random.choice(different, len(different) // 2, replace=False)
-        # make children
-        c1 = np.copy(self.genome)
-        c1[indices] = other.genome[indices]
-        c2 = np.copy(other.genome)
-        c2[indices] = self.genome[indices]
-        if c1.sum() < 2 or c2.sum() < 2:
-            return None
-        return Individual(c1), Individual(c2)
+#         """
+#         assert threshold < len(self.genome)
+#         assert len(self.genome) == len(other.genome)
+#         # get locations where differ
+#         (different,) = np.where(self.genome != other.genome)
+#         # don't cross over
+#         if len(different) // 2 < threshold:
+#             return None
+#         # select chromosomes to swamp
+#         indices = np.random.choice(different, len(different) // 2, replace=False)
+#         # make children
+#         c1 = np.copy(self.genome)
+#         c1[indices] = other.genome[indices]
+#         c2 = np.copy(other.genome)
+#         c2[indices] = self.genome[indices]
+#         if c1.sum() < 2 or c2.sum() < 2:
+#             return None
+#         return Individual(c1), Individual(c2)
 
-    def mutate(self, p: float) -> "Individual":
-        """Mutation.
+#     def mutate(self, p: float) -> "Individual":
+#         """Mutation.
 
-        Args:
-            p: Percentage of bits to flip.
+#         Args:
+#             p: Percentage of bits to flip.
 
-        """
-        assert p < 1
-        while True:
-            indices = np.random.choice(
-                np.arange(len(self.genome)), int(p * len(self.genome)), replace=False
-            )
-            genome = np.copy(self.genome)
-            genome[indices] = 1 - genome[indices]
-            if genome.sum() > 1:
-                return Individual(genome)
+#         """
+#         assert p < 1
+#         while True:
+#             indices = np.random.choice(
+#                 np.arange(len(self.genome)), int(p * len(self.genome)), replace=False
+#             )
+#             genome = np.copy(self.genome)
+#             genome[indices] = 1 - genome[indices]
+#             if genome.sum() > 1:
+#                 return Individual(genome)
 
-    @property
-    def genome(self):
-        return self._genome
+#     @property
+#     def genome(self):
+#         return self._genome
 
-    @classmethod
-    def generate(cls, n: int) -> "Individual":
-        """Generate random genome with.."""
-        while True:
-            candidate = np.random.randint(2, size=n)
-            if candidate.sum() > 1:
-                return Individual(candidate)
-        # return Individual(np.random.randint(2, size=n))
+#     @classmethod
+#     def generate(cls, n: int) -> "Individual":
+#         """Generate random genome with.."""
+#         while True:
+#             candidate = np.random.randint(2, size=n)
+#             if candidate.sum() > 1:
+#                 return Individual(candidate)
+#         # return Individual(np.random.randint(2, size=n))
 
-    def __eq__(self, other: "Individual"):
-        return id(self) == id(other)
+#     def __eq__(self, other: "Individual"):
+#         return id(self) == id(other)
 
-    def __len__(self):
-        return len(self._genome)
+#     def __len__(self):
+#         return len(self._genome)
 
-    def __str__(self):
-        return str(self._genome)
+#     def __str__(self):
+#         return str(self._genome)
 
-    def __hash__(self):
-        return hash(id(self))
+#     def __hash__(self):
+#         return hash(id(self))

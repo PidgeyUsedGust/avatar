@@ -1,10 +1,10 @@
-"""Evaluate the rankings."""
-from time import time
-import tqdm
 import json
 import argparse
+from tqdm import tqdm
+from time import time
 from pathlib import Path
 from avatar.evaluate import *
+from avatar.ranking import *
 from settings import Experiment
 
 
@@ -31,25 +31,36 @@ def get_estimator(task: str):
 def run(experiment_file: Path):
 
     # load data
-    file = Experiment.get_file(experiment_file, "baseline")
+    file = Experiment.get_file(experiment_file, "legacy")
     data, meta = read(experiment_file)
 
     # get estimator
     estimator = get_estimator(meta["task"])
 
     # initialise ranker
-    ranker = Game(
+    game = Game(
         estimator=estimator,
-        rounds=Experiment.games,
+        judge=SHAPJudge(),
+        rounds=1,
         samples=min(len(data.index), Experiment.samples),
     )
-    ranker.initialise(data, meta["target"])
+    tournament = Tournament(
+        game=game,
+        pool=AveragePool(),
+        games=Experiment.games,
+        size=lambda x: np.random.binomial(x, 0.5),
+        exploration=1,
+    )
+    tournament.initialise(data, meta["target"])
 
-    # rank with everything
+    # play the tournament
     start = time()
-    ranking = ranker.play(set(data.columns) - {meta["target"]}).performances
-    ranked = sorted(ranking, key=ranking.get, reverse=True)
+    tournament.play()
     end = time()
+
+    # extract ranking
+    ranking = tournament.ratings
+    ranked = sorted(ranking, key=ranking.get, reverse=True)
 
     # initialise evaluator
     evaluator = Experiment.get_evaluator(meta["task"])
@@ -80,7 +91,7 @@ if __name__ == "__main__":
     else:
         experiments = list(Path("data/processed").glob("**/data_3.csv"))
 
-    bar = tqdm.tqdm(total=len(experiments), desc="Experiment", position=0)
+    bar = tqdm(total=len(experiments), desc="Experiment", position=0)
     for experiment in experiments:
         bar.set_postfix_str(experiment.parent.name)
         run(experiment)

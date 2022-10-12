@@ -1,10 +1,10 @@
-"""Evaluate the rankings."""
-from time import time
-import tqdm
 import json
 import argparse
+from tqdm import tqdm
+from time import time
 from pathlib import Path
 from avatar.evaluate import *
+from avatar.ranking import *
 from settings import Experiment
 
 
@@ -31,33 +31,50 @@ def get_estimator(task: str):
 def run(experiment_file: Path):
 
     # load data
-    file = Experiment.get_file(experiment_file, "baseline")
+    file = Experiment.get_file(experiment_file, "new+balanced")
     data, meta = read(experiment_file)
 
     # get estimator
     estimator = get_estimator(meta["task"])
 
     # initialise ranker
-    ranker = Game(
+    game = Game(
         estimator=estimator,
-        rounds=Experiment.games,
+        judge=SHAPJudge(),
+        rounds=1,
         samples=min(len(data.index), Experiment.samples),
     )
-    ranker.initialise(data, meta["target"])
+    tournament = Tournament(
+        game=game,
+        pool=AveragePool(),
+        games=Experiment.games,
+        size=16,
+        exploration=0.5,
+    )
+    tournament.initialise(data, meta["target"])
 
-    # rank with everything
+    # play the tournament
     start = time()
-    ranking = ranker.play(set(data.columns) - {meta["target"]}).performances
-    ranked = sorted(ranking, key=ranking.get, reverse=True)
+    tournament.play()
     end = time()
+
+    # extract ranking
+    ranking = tournament.ratings
+    ranked = sorted(ranking, key=ranking.get, reverse=True)
 
     # initialise evaluator
     evaluator = Experiment.get_evaluator(meta["task"])
     evaluator.initialise(data, meta["target"])
     result = evaluator.play(ranked[: Experiment.select])
+    result_best = evaluator.play(max(tournament.results, key=lambda r: r.score)._team)
 
     # collect data
-    data = {"ranking": ranking, "result": result.json, "time": end - start}
+    data = {
+        "ranking": ranking,
+        "result": result.json,
+        "result_best": result_best.json,
+        "time": end - start,
+    }
 
     # save
     with open(file, "w") as f:
@@ -80,7 +97,7 @@ if __name__ == "__main__":
     else:
         experiments = list(Path("data/processed").glob("**/data_3.csv"))
 
-    bar = tqdm.tqdm(total=len(experiments), desc="Experiment", position=0)
+    bar = tqdm(total=len(experiments), desc="Experiment", position=0)
     for experiment in experiments:
         bar.set_postfix_str(experiment.parent.name)
         run(experiment)

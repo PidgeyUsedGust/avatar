@@ -8,16 +8,27 @@ import time
 import json
 import argparse
 import importlib
-import itertools
 from pathlib import Path
-from tqdm import tqdm
-from avatar.supervised import *
-from avatar.settings import Settings
-from avatar.utilities import estimator_to_string
+
+import tqdm
+from avatar.evaluate import *
+from avatar.ranking import AveragePool, TruePool, Tournament
+
+
+def read(file: Path):
+    data = pd.read_csv(file)
+    with open(file.parent / "meta.json") as f:
+        meta = json.load(f)
+    # set target type
+    if meta["task"] == "classification":
+        data[meta["target"]] = data[meta["target"]].astype("category")
+    else:
+        data[meta["target"]] = data[meta["target"]].astype("float")
+    return data, meta
 
 
 def get_estimator(classifier, classification: bool = True):
-    """
+    """Turn string into an estimator.
 
     Args:
         classifier: String representation of classifier.
@@ -53,105 +64,129 @@ def get_estimator(classifier, classification: bool = True):
     return clf(**arg)
 
 
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment")
-    parser.add_argument("--name", type=str)
-    parser.add_argument("--tournament", type=str, default="annealing")
-    parser.add_argument("--judge", type=str, default="shap")
-    parser.add_argument("--skill", type=str, default="average")
-    parser.add_argument("--estimator", type=str, default=None)
-    parser.add_argument("--games", type=int, default=400)
-    parser.add_argument("--rounds", type=int, default=1)
-    parser.add_argument("--samples", type=int, default=1000)
-    parser.add_argument("--team", default=16)
-    parser.add_argument("--exploration", type=float, default=0.25)
-    parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--force", action="store_true", default=False)
-    args = parser.parse_args()
-
-    Settings.verbose = args.verbose
-
-    # load metadata
-    file = Path(args.experiment)
-    with open(file.parent / "meta.json") as metaf:
-        meta = json.load(metaf)
-
-    # properties
-    classification = meta["type"].lower() == "classification"
-
-    # get judge
-    if "shap" in args.judge:
+def get_tournament(
+    configuration: Dict[str, Union[str, int]], classification: bool
+) -> Tournament:
+    # parse judge
+    if "shap" in configuration["judge"].lower():
         judge = SHAPJudge()
-    elif "permutation" in args.judge:
+    elif "permutation" in configuration["judge"].lower():
         judge = PermutationJudge()
     else:
         judge = DefaultJudge()
-
-    # get estimator
-    if args.estimator is None:
-        args.estimator = "DecisionTreeRegressor(max_depth=4)"
-    estimator = get_estimator(args.estimator, classification=classification)
-
-    # initialise game
-    game = Game(
-        estimator=estimator, judge=judge, rounds=args.rounds, samples=args.samples
-    )
-
-    # initialise pool
-    if args.skill == "true":
+    # parse skill
+    if "true" in configuration["judge"].lower():
         pool = TruePool()
     else:
         pool = AveragePool()
-
-    # select tournament
-    if "annealing" in args.tournament:
-        tournament = AnnealingTournament
+    # make into function
+    if isinstance(configuration["team"], str):
+        team = eval(configuration["team"])
     else:
-        tournament = Tournament
-
-    if args.team.isdigit():
-        args.team = int(args.team)
-
-    # create from parameters
-    tournament = tournament(
+        team = configuration["team"]
+    # make estimator
+    estimator = get_estimator(configuration["estimator"], classification=classification)
+    # initialise game
+    game = Game(
+        estimator=estimator,
+        judge=judge,
+        rounds=configuration["rounds"],
+        samples=configuration["samples"],
+    )
+    # make and return tournament
+    return Tournament(
         game=game,
         pool=pool,
-        games=args.games,
-        exploration=args.exploration,
-        teamsize=args.team,
+        games=configuration["games"],
+        exploration=configuration["exploration"],
+        size=team,
     )
 
-    # make result file and check if exists
-    result_file = (
-        file.parent
+
+def run(experiment_file: Path, configuration_file: Path, force: bool = False):
+
+    # prepare output and check if it doesn't exist
+    out_dir = (
+        experiment_file.parent.parent.parent
+        / "results"
+        / experiment_file.parent.name
         / "rankings"
-        / args.name
-        / "{}.json".format(tournament).replace(" ", "")
     )
-    if result_file.exists() and not args.force:
-        sys.exit()
+    out_dir.mkdir(exist_ok=True)
+    out_name = "{}.json".format(configuration_file.stem)
+    if (out_dir / out_name).exists() and not force:
+        return
+    else:
+        out_dir.mkdir(exist_ok=True)
 
-    # then load data
-    data = pd.read_csv(file, index_col=None)
+    with open(configuration_file) as f:
+        configuration = json.load(f)
+    data, meta = read(experiment_file)
+
+    # initialise
+    tournament = get_tournament(configuration, meta["task"] == "classification")
+    tournament.initialise(data, meta["target"])
 
     # play
     start = time.time()
-    tournament.initialise(data, target=meta["target"])
     tournament.play()
     end = time.time()
 
-    # collect results
-    results = dict()
-    results["ranking"] = tournament.results
-    results["parameters"] = tournament.parameters
-    results["time"] = end - start
-    results["data"] = str(file)
-    results["target"] = meta["target"]
-    results["type"] = meta["type"]
+    result = {
+        "rankings": tournament.results,
+        "time": end - start,
+        "parameters": configuration,
+    }
 
-    # write to file
-    result_file.parent.mkdir(exist_ok=True)
-    with open(result_file, "w") as f:
-        json.dump(results, f, indent=2)
+    out_dir = (
+        experiment_file.parent.parent.parent
+        / "results"
+        / experiment_file.parent.name
+        / "rankings"
+    )
+    out_dir.mkdir(exist_ok=True)
+    out_name = "{}.json".format(configuration_file.stem)
+    with open(out_dir / out_name, "w") as f:
+        json.dump(result, f, indent=2)
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment", default=None)
+    parser.add_argument("--iteration", default=1)
+    parser.add_argument("--configuration", type=str, default=None)
+    parser.add_argument("--verbose", action="store_true", default=False)
+    args = parser.parse_args()
+
+    # set settings
+    Settings.verbose = args.verbose
+
+    # load experiments
+    if args.experiment is not None:
+        experiments = [
+            Path("data/processed")
+            / args.experiment
+            / "data_{}.csv".format(args.iteration)
+        ]
+    else:
+        experiments = Path("data/processed").glob(
+            "**/data_{}.csv".format(args.iteration)
+        )
+
+    # load configuration files
+    configurations = list()
+    location = Path(
+        args.configuration or "experiments/configurations/grid/default.json"
+    )
+    if location.is_file():
+        configurations.append(location)
+    else:
+        for file in location.glob("*.json"):
+            configurations.append(file)
+
+    for experiment in tqdm.tqdm(list(experiments), desc="Experiment", position=0):
+        for configuration in tqdm.tqdm(
+            configurations, desc="Configuration", position=1
+        ):
+            run(experiment, configuration)

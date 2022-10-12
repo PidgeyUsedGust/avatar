@@ -80,6 +80,18 @@ class ConstantFilter(Filter):
         return df.drop(to_drop, axis=1)
 
 
+class InfinityFilter(Filter):
+    """Remove columns with infinity."""
+
+    def select(self, df: pd.DataFrame, target: Hashable = None) -> pd.DataFrame:
+        to_drop = list()
+        for column in df.select_dtypes("float64"):
+            if np.isinf(df[column]).any():
+                print(column)
+                to_drop.append(column)
+        return df.drop(to_drop, axis=1)
+
+
 class IdenticalFilter(Filter):
     """Remove identical columns.
 
@@ -214,7 +226,7 @@ class FreshFilter(Filter):
 
         # generate list of p values
         p_values = list()
-        for name, x in df.iteritems():
+        for name, x in df.items():
             # skip the target
             if name == target:
                 continue
@@ -233,7 +245,6 @@ class FreshFilter(Filter):
 
         # run Benjamini/Yekutieli procedure
         reject, _, _, _ = multipletests(p_values, self._q, method="fdr_by")
-        print(reject)
 
         # insert target
         reject = np.insert(reject, i, False)

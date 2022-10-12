@@ -84,5 +84,4 @@ if __name__ == "__main__":
         experiments = [p for p in Path("data/processed").glob("*")]
 
     for experiment in tqdm.tqdm(experiments):
-        # print(experiment)
         run(experiment, args.iterations)
