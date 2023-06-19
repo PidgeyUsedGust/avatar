@@ -8,7 +8,7 @@ Two types of selection are performed.
 """
 from functools import cached_property
 from avatar.ranking import Tournament
-from avatar.utilities import divide
+from avatar.utilities import divide, split
 import random
 import numpy as np
 import pandas as pd
@@ -180,7 +180,7 @@ class ChunkedSFFSelector(Selector):
             random.shuffle(remainder)
 
             # decide on size of each chunk
-            size = ceil(len(remainder) / self._chunks)
+            size = max(1, ceil(len(remainder) / self._chunks))
 
             # if the budget is smaller than the minimal number of
             # games to be played, we swich to foward selection
@@ -301,10 +301,10 @@ class CHCGASelector(Selector):
     def _generate_population(self) -> Population:
         """Generate population."""
         if len(self._start) > 0:
-            generator = lambda: self._start
+            population = [frozenset(self._start) for _ in range(self._size)]
         else:
-            generator = lambda: random.choices(self.chromosomes, k=self._initial)
-        population = [frozenset(generator()) for _ in range(self._size)]
+            shuffled = random.sample(self.chromosomes, k=len(self.chromosomes))
+            population = [frozenset(d) for d in split(shuffled, self._size)]
         self.evaluate(population)
         return population
 
@@ -341,7 +341,7 @@ class CHCGASelector(Selector):
             if self._threshold == 0 or len(set(children)) == 1:
                 best = max(population, key=self._results.get)
                 children = [best]
-                while len(children) < self._n:
+                while len(children) < self._size:
                     children.append(self.mutate(best, 0.4))
                 self._threshold = self._threshold_base
 

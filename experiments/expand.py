@@ -57,6 +57,7 @@ def run(experiment: Path, iterations: int):
     # expand
     times = list()
     for i in tqdm.tqdm(range(iterations)):
+        print(data.columns)
         # run expansion
         start = time.time()
         data = expander.expand(data, exclude=[meta["target"]])

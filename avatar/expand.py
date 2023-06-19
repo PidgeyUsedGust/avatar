@@ -195,6 +195,7 @@ class Expander:
                         all_map[new_column] = (i, transformation)
                 # found some new columns
                 if len(new_dfs) > 0:
+                    # print(new_dfs)
                     column_df = pd.concat(new_dfs, axis=1)
                     column_df = self.prune.select(column_df)
                     all_dfs.append(column_df)

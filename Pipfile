@@ -12,11 +12,15 @@ avatar = {editable = true, path = "."}
 shap = "*"
 word2number = "*"
 trueskill = "*"
+scipy = "*"
+dateparser = "*"
+statsmodels = "*"
 
 [dev-packages]
 ipykernel = "*"
 seaborn = "*"
 ipywidgets = "*"
+pyinstrument = "*"
 
 [requires]
-python_version = "3.8"
+python_version = "3"

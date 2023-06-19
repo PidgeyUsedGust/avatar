@@ -51,6 +51,12 @@ def divide(l: List[T], n: int) -> List[List[T]]:
     return [l[i : i + n] for i in range(0, len(l), n)]
 
 
+def split(l, n):
+    """Split a list."""
+    k, m = divmod(len(l), n)
+    return (l[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
+
+
 # def encode_label(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
 #     """Encode with labelencoder.
 

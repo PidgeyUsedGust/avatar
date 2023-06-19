@@ -31,7 +31,7 @@ def get_estimator(task: str):
 def run(experiment_file: Path):
 
     # load data
-    file = Experiment.get_file(experiment_file, "baseline")
+    file = Experiment.get_file(experiment_file, "baseline", "selection")
     data, meta = read(experiment_file)
 
     # get estimator
@@ -40,7 +40,7 @@ def run(experiment_file: Path):
     # initialise ranker
     ranker = Game(
         estimator=estimator,
-        rounds=Experiment.games,
+        rounds=Experiment.games * Experiment.rounds,
         samples=min(len(data.index), Experiment.samples),
     )
     ranker.initialise(data, meta["target"])

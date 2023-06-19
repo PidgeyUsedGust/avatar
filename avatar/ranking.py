@@ -50,8 +50,11 @@ class Pool(ABC):
             A list of players.
 
         """
+        # whole team needs to be selected
+        if size >= len(self.players):
+            return self.players[:]
         # get players and weights
-        p, w = map(list, zip(*((p, self.rating(p) + 0.001) for p in self.players)))
+        p, w = map(list, zip(*((p, self.rating(p) + 0.05) for p in self.players)))
         # build team
         team = list()
         while len(team) < size:
@@ -113,7 +116,7 @@ class AveragePool(Pool):
     def rating(self, player: Hashable) -> float:
         """Compute rating as average."""
         if self._counts[player] == 0:
-            return 0.5
+            return 1
         return sum(self._scores[player]) / self._counts[player]
 
 

@@ -1,7 +1,6 @@
 from pathlib import Path
 from xgboost import XGBClassifier, XGBRegressor
-
-from avatar.evaluate import Game
+from avatar.evaluate import *
 
 
 class Experiment:
@@ -24,16 +23,17 @@ class Experiment:
     def get_evaluator(task: str) -> Game:
         return Game(
             estimator=Experiment.get_estimator(task),
-            rounds=Experiment.rounds,
+            rounds=100,
             samples=2e16,
         )
 
     @staticmethod
-    def get_file(experiment: Path, name: str) -> Path:
+    def get_file(experiment: Path, name: str, category: str) -> Path:
         out_file = (
             experiment.parent.parent.parent
             / "results"
             / experiment.parent.name
+            / category
             / "{}.json".format(name)
         )
         out_file.parent.mkdir(exist_ok=True, parents=True)

@@ -31,7 +31,7 @@ def get_estimator(task: str):
 def run(experiment_file: Path):
 
     # load data
-    file = Experiment.get_file(experiment_file, "new+balanced")
+    file = Experiment.get_file(experiment_file, "new+balanced", "selection")
     data, meta = read(experiment_file)
 
     # get estimator
@@ -41,7 +41,7 @@ def run(experiment_file: Path):
     game = Game(
         estimator=estimator,
         judge=SHAPJudge(),
-        rounds=1,
+        rounds=Experiment.rounds,
         samples=min(len(data.index), Experiment.samples),
     )
     tournament = Tournament(

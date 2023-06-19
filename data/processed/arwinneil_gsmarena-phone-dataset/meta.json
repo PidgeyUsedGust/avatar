@@ -1,0 +1,4 @@
+{
+  "target": "approx_price_EUR",
+  "task": "regression"
+}
